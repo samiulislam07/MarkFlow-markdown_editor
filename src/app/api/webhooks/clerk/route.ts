@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { Webhook } from 'svix'
 import { connectToDatabase } from '@/lib/mongodb/connect'
 import User from '@/lib/mongodb/models/User'
-import { Session } from '@/lib/mongodb/models/session'
+import { Session } from '@/lib/mongodb/models/Session'
 
 const webhookSecret = process.env.CLERK_WEBHOOK_SECRET || ''
 
