@@ -1,33 +1,20 @@
-import { UserButton } from '@clerk/nextjs'
-import { currentUser } from '@clerk/nextjs/server'
-import { redirect } from 'next/navigation'
+import { auth, currentUser } from '@clerk/nextjs/server'
+import { connectToDatabase } from '@/lib/mongodb/connect'
+import  User from '@/lib/mongodb/models/User'
 
 export default async function Dashboard() {
-  const user = await currentUser()
+  const { userId } = await auth()
+  const clerkUser = await currentUser()
   
-  if (!user) {
-    redirect('/sign-in')
-  }
+  // Get additional user data from your database
+  await connectToDatabase()
+  const dbUser = await User.findOne({ clerkId: userId })
 
   return (
-    <div className="min-h-screen bg-gray-50 p-8">
-      <div className="max-w-4xl mx-auto">
-        <div className="flex justify-between items-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">
-            Welcome, {user.firstName}!
-          </h1>
-          <UserButton afterSignOutUrl="/" />
-        </div>
-        
-        <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-xl font-semibold mb-4">User Information</h2>
-          <div className="space-y-2">
-            <p><strong>Email:</strong> {user.emailAddresses[0]?.emailAddress}</p>
-            <p><strong>Full Name:</strong> {user.firstName} {user.lastName}</p>
-            <p><strong>User ID:</strong> {user.id}</p>
-          </div>
-        </div>
-      </div>
+    <div>
+      <h1>Welcome, {clerkUser?.firstName}!</h1>
+      <p>Email: {clerkUser?.emailAddresses[0]?.emailAddress}</p>
+      <p>Database ID: {dbUser?._id}</p>
     </div>
   )
 }
