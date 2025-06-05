@@ -8,11 +8,14 @@ export async function connectToDatabase() {
   if (isConnected) return;
 
   try {
-    await mongoose.connect(MONGODB_URI, {
-      dbName: "cse299",
-    });
+    const options = {
+      dbName: "markflow",
+      bufferCommands: false,
+    };
+
+    await mongoose.connect(MONGODB_URI, options);
     isConnected = true;
-    console.log("✅ Connected to MongoDB");
+    console.log("✅ Connected to MongoDB (MarkFlow)");
   } catch (error) {
     console.error("❌ MongoDB connection error:", error);
     throw new Error("Failed to connect to MongoDB");
@@ -27,3 +30,15 @@ export function getConnectionStatus() {
     name: mongoose.connection.name
   };
 }
+
+// Graceful shutdown
+process.on('SIGINT', async () => {
+  try {
+    await mongoose.connection.close();
+    console.log('📤 MongoDB connection closed.');
+    process.exit(0);
+  } catch (error) {
+    console.error('❌ Error closing MongoDB connection:', error);
+    process.exit(1);
+  }
+});
