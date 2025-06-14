@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "seed": "node scripts/seed-database.js",
+    "test:db": "node scripts/seed-database.js"
   },
   "dependencies": {
     "@clerk/nextjs": "^6.20.2",
