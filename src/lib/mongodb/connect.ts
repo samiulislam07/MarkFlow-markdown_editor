@@ -2,7 +2,11 @@
 import mongoose from "mongoose";
 import { MONGODB_URI } from "@/config/dbConfig";
 
+
 let isConnected = false;
+
+console.log(MONGODB_URI);
+
 
 export async function connectToDatabase() {
   if (isConnected) return;
