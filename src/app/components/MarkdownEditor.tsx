@@ -1,388 +1,373 @@
-"use client"
+'use client';
+
 import React, { useState, useEffect, useRef } from 'react';
-import { Eye, Edit3, Download, Copy, Settings, Bold, Italic, Code, Link, List, ListOrdered, Quote, Minus, Table, FileText } from 'lucide-react';
+import {
+  Bold, Italic, Code, Link, List, ListOrdered, Quote, Minus, 
+  Copy, Download, Eye, EyeOff, Maximize, Minimize,
+  LucideIcon
+} from 'lucide-react';
+import { EditorState } from '@codemirror/state';
+import { EditorView, keymap } from '@codemirror/view';
+import { markdown } from '@codemirror/lang-markdown';
+import { oneDark } from '@codemirror/theme-one-dark';
+import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
+import sanitizeHtml from 'sanitize-html';
+import { MathJaxContext, MathJax } from 'better-react-mathjax';
 
-const MarkdownEditor = () => {
-  const [markdown, setMarkdown] = useState(`# Markdown Editor with LaTeX Support
+// Fix for MathIcon - importing from a different package since it's not in lucide-react
+import { Subscript as MathIcon } from 'lucide-react';
 
-Welcome to the **advanced markdown editor** with full LaTeX support!
-
-## Mathematical Expressions
-
-Inline math: $E = mc^2$ and $\\alpha + \\beta = \\gamma$
-
-Block math:
-$$
-\\int_{-\\infty}^{\\infty} e^{-x^2} dx = \\sqrt{\\pi}
-$$
-
-$$
-\\begin{pmatrix}
-a & b \\\\
-c & d
-\\end{pmatrix}
-\\begin{pmatrix}
-x \\\\
-y
-\\end{pmatrix} = 
-\\begin{pmatrix}
-ax + by \\\\
-cx + dy
-\\end{pmatrix}
-$$
-
-## Code Blocks
-
-\`\`\`javascript
-function fibonacci(n) {
-  if (n <= 1) return n;
-  return fibonacci(n - 1) + fibonacci(n - 2);
+interface MarkdownEditorProps {
+  initialContent?: string;
+  onContentChange: (content: string) => void;
 }
-\`\`\`
 
-\`\`\`python
-def quicksort(arr):
-    if len(arr) <= 1:
-        return arr
-    pivot = arr[len(arr) // 2]
-    left = [x for x in arr if x < pivot]
-    middle = [x for x in arr if x == pivot]
-    right = [x for x in arr if x > pivot]
-    return quicksort(left) + middle + quicksort(right)
-\`\`\`
+const MarkFlowMarkdownEditor: React.FC<MarkdownEditorProps> = ({ initialContent = '', onContentChange }) => {
+  const [markdownContent, setMarkdownContent] = useState<string>(initialContent);
+  const [htmlContent, setHtmlContent] = useState<string>('');
+  const [showPreview, setShowPreview] = useState<boolean>(true);
+  const [isFullScreen, setIsFullScreen] = useState<boolean>(false);
 
-## Tables
+  const editorRef = useRef<HTMLDivElement>(null);
+  const editorViewRef = useRef<EditorView | null>(null);
 
-| Feature | Status | Priority |
-|---------|--------|----------|
-| LaTeX Support | ✅ Complete | High |
-| Live Preview | ✅ Complete | High |
-| Syntax Highlighting | ✅ Complete | Medium |
-| Export Options | 🚧 In Progress | Low |
+  const mathJaxConfig = {
+    loader: { load: ['[tex]/ams', '[tex]/noerrors'] },
+    tex: {
+      inlineMath: [['$', '$']],
+      displayMath: [['$$', '$$']],
+      packages: { '[+]': ['ams', 'noerrors'] },
+      processEscapes: true,
+      processEnvironments: true
+    },
+    options: {
+      skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre'],
+      enableMenu: false
+    }
+  };
 
-## Lists and Formatting
-
-### Unordered List
-- **Bold text**
-- *Italic text*
-- \`Inline code\`
-- [Links](https://example.com)
-- ~~Strikethrough~~
-
-### Ordered List
-1. First item
-2. Second item
-3. Third item with math: $f(x) = x^2 + 2x + 1$
-
-## Blockquotes
-
-> "The best way to predict the future is to invent it."
-> 
-> — Alan Kay
-
-## Complex LaTeX Examples
-
-Maxwell's equations:
-$$
-\\begin{align}
-\\nabla \\cdot \\mathbf{E} &= \\frac{\\rho}{\\epsilon_0} \\\\
-\\nabla \\cdot \\mathbf{B} &= 0 \\\\
-\\nabla \\times \\mathbf{E} &= -\\frac{\\partial \\mathbf{B}}{\\partial t} \\\\
-\\nabla \\times \\mathbf{B} &= \\mu_0\\mathbf{J} + \\mu_0\\epsilon_0\\frac{\\partial \\mathbf{E}}{\\partial t}
-\\end{align}
-$$
-
-Schrödinger equation:
-$$
-i\\hbar\\frac{\\partial}{\\partial t}\\Psi(\\mathbf{r},t) = \\hat{H}\\Psi(\\mathbf{r},t)
-$$
-`);
-
-  const [htmlContent, setHtmlContent] = useState('');
-  const [showPreview, setShowPreview] = useState(true);
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const textareaRef = useRef(null);
-  const previewRef = useRef(null);
-
-  // Markdown to HTML conversion with LaTeX support
-  const processMarkdown = (text) => {
-    // First, escape HTML
-    let processed = text
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
-
-    // Process LaTeX blocks first (before other markdown)
-    processed = processed.replace(/\$\$([\s\S]*?)\$\$/g, (match, latex) => {
-      return `<div class="math-block">$$${latex}$$</div>`;
+  const processMarkdown = (markdown: string): string => {
+    // Process LaTeX blocks first
+    let processed = markdown.replace(/\$\$([\s\S]*?)\$\$/g, (_, content) => {
+      const trimmed = content.trim();
+      return `<div class="math-block">$$${trimmed}$$</div>`;
     });
 
     // Process inline LaTeX
-    processed = processed.replace(/\$([^$\n]+?)\$/g, (match, latex) => {
-      return `<span class="math-inline">$${latex}$</span>`;
+    processed = processed.replace(/\$([^\$]+?)\$/g, (_, content) => {
+      const trimmed = content.trim();
+      return `<span class="math-inline">$${trimmed}$</span>`;
     });
 
-    // Headers
-    processed = processed.replace(/^### (.*$)/gm, '<h3>$1</h3>');
-    processed = processed.replace(/^## (.*$)/gm, '<h2>$1</h2>');
+    // Process code blocks
+    processed = processed.replace(/```([\s\S]*?)```/g, (_, content) => {
+      return `<pre><code>${content.trim()}</code></pre>`;
+    });
+
+    // Process inline code
+    processed = processed.replace(/`([^`]+?)`/g, (_, content) => {
+      return `<code>${content.trim()}</code>`;
+    });
+
+    // Process headings
     processed = processed.replace(/^# (.*$)/gm, '<h1>$1</h1>');
+    processed = processed.replace(/^## (.*$)/gm, '<h2>$1</h2>');
+    processed = processed.replace(/^### (.*$)/gm, '<h3>$1</h3>');
 
-    // Code blocks
-    processed = processed.replace(/```(\w+)?\n([\s\S]*?)```/g, (match, lang, code) => {
-      const language = lang || 'text';
-      return `<pre><code class="language-${language}">${code.trim()}</code></pre>`;
-    });
-
-    // Inline code
-    processed = processed.replace(/`([^`]+)`/g, '<code>$1</code>');
-
-    // Bold and italic
-    processed = processed.replace(/\*\*\*(.*?)\*\*\*/g, '<strong><em>$1</em></strong>');
+    // Process bold and italic
     processed = processed.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
     processed = processed.replace(/\*(.*?)\*/g, '<em>$1</em>');
 
-    // Strikethrough
-    processed = processed.replace(/~~(.*?)~~/g, '<del>$1</del>');
+    // Process lists
+    processed = processed.replace(/^\s*[-*+]\s+(.*$)/gm, '<li>$1</li>');
+    processed = processed.replace(/(<li>.*<\/li>)/gs, '<ul>$1</ul>');
+    processed = processed.replace(/^\s*\d+\.\s+(.*$)/gm, '<li>$1</li>');
+    processed = processed.replace(/(<li>.*<\/li>)/gs, '<ol>$1</ol>');
 
-    // Links
-    processed = processed.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+    // Process blockquotes
+    processed = processed.replace(/^\> (.*$)/gm, '<blockquote>$1</blockquote>');
 
-    // Tables
-    processed = processed.replace(/^\|(.+)\|\s*$/gm, (match, content) => {
-      const cells = content.split('|').map(cell => cell.trim()).filter(cell => cell);
-      const isHeader = processed.indexOf(match) > 0 && 
-        processed.substring(0, processed.indexOf(match)).split('\n').slice(-2)[0].includes('|');
-      
-      if (isHeader && cells.every(cell => /^:?-+:?$/.test(cell))) {
-        return ''; // Skip separator row
-      }
-      
-      const tag = cells.every(cell => /^:?-+:?$/.test(cell)) ? '' : 
-        (processed.split(match)[0].split('\n').slice(-2)[0].includes('|') ? 'td' : 'th');
-      
-      if (!tag) return '';
-      
-      const row = cells.map(cell => `<${tag}>${cell}</${tag}>`).join('');
-      return `<tr>${row}</tr>`;
-    });
-
-    // Wrap tables
-    processed = processed.replace(/(<tr>.*<\/tr>\s*)+/g, '<table>$&</table>');
-
-    // Lists
-    processed = processed.replace(/^\d+\.\s(.+)/gm, '<li>$1</li>');
-    processed = processed.replace(/(<li>.*<\/li>\s*)+/g, '<ol>$&</ol>');
-    
-    processed = processed.replace(/^[-*+]\s(.+)/gm, '<li>$1</li>');
-    processed = processed.replace(/(<li>.*<\/li>\s*)+/g, (match) => {
-      if (match.includes('<ol>')) return match;
-      return `<ul>${match}</ul>`;
-    });
-
-    // Blockquotes
-    processed = processed.replace(/^>\s(.+)/gm, '<blockquote>$1</blockquote>');
-
-    // Horizontal rules
+    // Process horizontal rules
     processed = processed.replace(/^---$/gm, '<hr>');
 
-    // Line breaks
-    processed = processed.replace(/\n\n/g, '</p><p>');
-    processed = `<p>${processed}</p>`;
+    // Process links
+    processed = processed.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
 
-    // Clean up empty paragraphs
-    processed = processed.replace(/<p><\/p>/g, '');
-    processed = processed.replace(/<p>(<h[1-6]>)/g, '$1');
-    processed = processed.replace(/(<\/h[1-6]>)<\/p>/g, '$1');
-    processed = processed.replace(/<p>(<table>)/g, '$1');
-    processed = processed.replace(/(<\/table>)<\/p>/g, '$1');
-    processed = processed.replace(/<p>(<pre>)/g, '$1');
-    processed = processed.replace(/(<\/pre>)<\/p>/g, '$1');
-    processed = processed.replace(/<p>(<blockquote>)/g, '$1');
-    processed = processed.replace(/(<\/blockquote>)<\/p>/g, '$1');
-    processed = processed.replace(/<p>(<hr>)/g, '$1');
-    processed = processed.replace(/(<hr>)<\/p>/g, '$1');
-    processed = processed.replace(/<p>(<[ou]l>)/g, '$1');
-    processed = processed.replace(/(<\/[ou]l>)<\/p>/g, '$1');
+    // Process paragraphs
+    processed = processed.replace(/^(?!<[a-z])(.*$)/gm, '<p>$1</p>');
 
-    return processed;
-  };
-
-  // Render LaTeX
-  const renderLatex = (html) => {
-    if (typeof window === 'undefined') return html;
-    
-    // This would normally use KaTeX, but for the demo we'll simulate it
-    let rendered = html;
-    
-    // Simple math rendering simulation
-    rendered = rendered.replace(/<div class="math-block">\$\$([\s\S]*?)\$\$<\/div>/g, 
-      '<div class="math-display bg-gray-50 p-4 my-4 rounded border-l-4 border-blue-500 font-mono text-center text-lg">$$$1$$</div>');
-    
-    rendered = rendered.replace(/<span class="math-inline">\$(.*?)\$<\/span>/g, 
-      '<span class="math-inline bg-blue-50 px-1 rounded font-mono text-blue-800">$1</span>');
-    
-    return rendered;
+    // Sanitize HTML
+    return sanitizeHtml(processed, {
+      allowedTags: ['h1', 'h2', 'h3', 'p', 'a', 'ul', 'ol', 'li', 'blockquote', 'code', 'pre', 'hr', 'strong', 'em', 'div', 'span'],
+      allowedAttributes: {
+        a: ['href'],
+        div: ['class'],
+        span: ['class']
+      }
+    });
   };
 
   useEffect(() => {
-    const html = processMarkdown(markdown);
-    const rendered = renderLatex(html);
-    setHtmlContent(rendered);
-  }, [markdown]);
+    if (editorRef.current && !editorViewRef.current) {
+      const startState = EditorState.create({
+        doc: markdownContent,
+        extensions: [
+          keymap.of([...defaultKeymap, ...historyKeymap]),
+          history(),
+          markdown(),
+          oneDark,
+          EditorView.updateListener.of(update => {
+            if (update.docChanged) {
+              const newContent = update.state.doc.toString();
+              setMarkdownContent(newContent);
+              onContentChange(newContent);
+            }
+          })
+        ]
+      });
 
-  const insertText = (before, after = '') => {
-    const textarea = textareaRef.current;
-    const start = textarea.selectionStart;
-    const end = textarea.selectionEnd;
-    const selectedText = markdown.substring(start, end);
-    const newText = markdown.substring(0, start) + before + selectedText + after + markdown.substring(end);
-    setMarkdown(newText);
-    
-    setTimeout(() => {
-      textarea.focus();
-      textarea.setSelectionRange(start + before.length, start + before.length + selectedText.length);
-    }, 0);
+      editorViewRef.current = new EditorView({
+        state: startState,
+        parent: editorRef.current
+      });
+
+      return () => {
+        editorViewRef.current?.destroy();
+        editorViewRef.current = null;
+      };
+    }
+  }, []);
+
+  useEffect(() => {
+    const processed = processMarkdown(markdownContent);
+    setHtmlContent(processed);
+  }, [markdownContent]);
+
+  const insertTextAtCursor = (text: string, cursorOffset: number = 0) => {
+    if (!editorViewRef.current) return;
+
+    const state = editorViewRef.current.state;
+    const selection = state.selection;
+    const from = selection.main.from;
+    const to = selection.main.to;
+
+    editorViewRef.current.dispatch({
+      changes: { from, to, insert: text },
+      selection: { anchor: from + cursorOffset }
+    });
   };
 
-  const toolbarButtons = [
-    { icon: Bold, action: () => insertText('**', '**'), title: 'Bold' },
-    { icon: Italic, action: () => insertText('*', '*'), title: 'Italic' },
-    { icon: Code, action: () => insertText('`', '`'), title: 'Inline Code' },
-    { icon: Link, action: () => insertText('[', '](url)'), title: 'Link' },
-    { icon: List, action: () => insertText('- '), title: 'Bullet List' },
-    { icon: ListOrdered, action: () => insertText('1. '), title: 'Numbered List' },
-    { icon: Quote, action: () => insertText('> '), title: 'Quote' },
-    { icon: Minus, action: () => insertText('---\n'), title: 'Horizontal Rule' },
-    { icon: FileText, action: () => insertText('$$\n', '\n$$'), title: 'Math Block' },
-  ];
-
-  const exportMarkdown = () => {
-    const blob = new Blob([markdown], { type: 'text/markdown' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'document.md';
-    a.click();
-    URL.revokeObjectURL(url);
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(markdownContent);
+      alert('Markdown copied to clipboard!');
+    } catch (err) {
+      console.error('Failed to copy:', err);
+      alert('Failed to copy markdown to clipboard.');
+    }
   };
 
-  const copyToClipboard = () => {
-    navigator.clipboard.writeText(markdown);
+  const handleDownload = () => {
+    try {
+      const element = document.createElement('a');
+      const file = new Blob([markdownContent], { type: 'text/markdown' });
+      element.href = URL.createObjectURL(file);
+      element.download = 'my-note.md';
+      document.body.appendChild(element);
+      element.click();
+      document.body.removeChild(element);
+      URL.revokeObjectURL(element.href);
+    } catch (err) {
+      console.error('Failed to download:', err);
+      alert('Failed to download markdown file.');
+    }
   };
+
+  const toggleFullScreen = () => {
+    setIsFullScreen(!isFullScreen);
+  };
+
+  const EditorToolbarButton: React.FC<{ 
+    onClick: () => void; 
+    icon: LucideIcon; 
+    label: string;
+    disabled?: boolean;
+  }> = ({ onClick, icon: Icon, label, disabled = false }) => (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className="p-2 rounded hover:bg-gray-700 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+      title={label}
+      aria-label={label}
+      tabIndex={0}
+      role="button"
+    >
+      <Icon className="w-5 h-5 text-gray-400" />
+    </button>
+  );
 
   return (
-    <div className={`flex flex-col h-screen bg-gray-50 ${isFullscreen ? 'fixed inset-0 z-50' : ''}`}>
-      {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-4 py-3">
-        <div className="flex items-center justify-between">
-          <h1 className="text-xl font-semibold text-gray-800">Markdown Editor</h1>
-          <div className="flex items-center space-x-2">
-            <button
-              onClick={() => setShowPreview(!showPreview)}
-              className="flex items-center px-3 py-2 text-sm bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 transition-colors"
-            >
-              {showPreview ? <Edit3 className="w-4 h-4 mr-2" /> : <Eye className="w-4 h-4 mr-2" />}
-              {showPreview ? 'Edit Only' : 'Show Preview'}
-            </button>
-            <button
-              onClick={copyToClipboard}
-              className="flex items-center px-3 py-2 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
-            >
-              <Copy className="w-4 h-4 mr-2" />
-              Copy
-            </button>
-            <button
-              onClick={exportMarkdown}
-              className="flex items-center px-3 py-2 text-sm bg-green-100 text-green-700 rounded-lg hover:bg-green-200 transition-colors"
-            >
-              <Download className="w-4 h-4 mr-2" />
-              Export
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Toolbar */}
-      <div className="bg-white border-b border-gray-200 px-4 py-2">
-        <div className="flex items-center space-x-1">
-          {toolbarButtons.map((button, index) => (
-            <button
-              key={index}
-              onClick={button.action}
-              title={button.title}
-              className="p-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded transition-colors"
-            >
-              <button.icon className="w-4 h-4" />
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Editor Content */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Editor Pane */}
-        <div className={`${showPreview ? 'w-1/2' : 'w-full'} flex flex-col border-r border-gray-200`}>
-          <div className="bg-gray-100 px-4 py-2 text-sm text-gray-600 border-b border-gray-200">
-            Editor
-          </div>
-          <textarea
-            ref={textareaRef}
-            value={markdown}
-            onChange={(e) => setMarkdown(e.target.value)}
-            className="flex-1 p-4 font-mono text-sm resize-none outline-none bg-white"
-            placeholder="Start writing your markdown with LaTeX support..."
-            spellCheck={false}
-          />
-        </div>
-
-        {/* Preview Pane */}
-        {showPreview && (
-          <div className="w-1/2 flex flex-col">
-            <div className="bg-gray-100 px-4 py-2 text-sm text-gray-600 border-b border-gray-200">
-              Preview
-            </div>
-            <div 
-              ref={previewRef}
-              className="flex-1 p-4 overflow-auto bg-white prose prose-sm max-w-none"
-              dangerouslySetInnerHTML={{ __html: htmlContent }}
-              style={{
-                fontFamily: 'system-ui, -apple-system, sans-serif',
-              }}
+    <MathJaxContext config={mathJaxConfig}>
+      <div className={`markflow-editor flex flex-col h-screen bg-gray-800 text-white ${isFullScreen ? 'fixed inset-0 z-50' : 'relative'}`}>
+        {/* Top Bar */}
+        <div className="flex items-center justify-between p-4 bg-gray-900 border-b border-gray-700">
+          <h1 className="text-xl font-bold">MarkFlow Editor</h1>
+          <div className="flex space-x-2">
+            <EditorToolbarButton onClick={() => insertTextAtCursor('**')} icon={Bold} label="Bold" />
+            <EditorToolbarButton onClick={() => insertTextAtCursor('*')} icon={Italic} label="Italic" />
+            <EditorToolbarButton onClick={() => insertTextAtCursor('`')} icon={Code} label="Code" />
+            <EditorToolbarButton onClick={() => insertTextAtCursor('[text](url)', 1)} icon={Link} label="Link" />
+            <EditorToolbarButton onClick={() => insertTextAtCursor('- ', 2)} icon={List} label="Unordered List" />
+            <EditorToolbarButton onClick={() => insertTextAtCursor('1. ', 3)} icon={ListOrdered} label="Ordered List" />
+            <EditorToolbarButton onClick={() => insertTextAtCursor('> ', 2)} icon={Quote} label="Blockquote" />
+            <EditorToolbarButton onClick={() => insertTextAtCursor('---', 3)} icon={Minus} label="Horizontal Rule" />
+            <EditorToolbarButton onClick={() => insertTextAtCursor('$$\n\n$$', 1)} icon={MathIcon} label="Math Block" />
+            <div className="h-full w-px bg-gray-700 mx-2"></div>
+            <EditorToolbarButton onClick={handleCopy} icon={Copy} label="Copy Markdown" />
+            <EditorToolbarButton onClick={handleDownload} icon={Download} label="Download Markdown" />
+            <div className="h-full w-px bg-gray-700 mx-2"></div>
+            <EditorToolbarButton 
+              onClick={() => setShowPreview(!showPreview)} 
+              icon={showPreview ? EyeOff : Eye} 
+              label={showPreview ? "Hide Preview" : "Show Preview"} 
+            />
+            <EditorToolbarButton 
+              onClick={toggleFullScreen} 
+              icon={isFullScreen ? Minimize : Maximize} 
+              label={isFullScreen ? "Exit Fullscreen" : "Fullscreen"} 
             />
           </div>
-        )}
-      </div>
+        </div>
 
-      {/* Status Bar */}
-      <div className="bg-gray-100 border-t border-gray-200 px-4 py-2 text-xs text-gray-500">
-        <div className="flex justify-between items-center">
-          <span>Lines: {markdown.split('\n').length} | Characters: {markdown.length}</span>
-          <span>LaTeX supported with KaTeX rendering</span>
+        {/* Editor and Preview Panes */}
+        <div className="flex flex-1 overflow-hidden">
+          {/* Editor Pane */}
+          <div className={`markflow-editor-pane flex-1 ${showPreview ? 'w-1/2' : 'w-full'} overflow-hidden`}>
+            <div ref={editorRef} className="h-full w-full bg-gray-800 text-white p-4 font-mono text-sm leading-relaxed overflow-auto markflow-codemirror" />
+          </div>
+
+          {/* Preview Pane */}
+          {showPreview && (
+            <div className="markflow-preview flex-1 w-1/2 overflow-auto bg-gray-700 text-white p-4">
+              <MathJaxContext config={mathJaxConfig}>
+                <MathJax>
+                  <div dangerouslySetInnerHTML={{ __html: htmlContent }} />
+                </MathJax>
+              </MathJaxContext>
+            </div>
+          )}
+        </div>
+
+        {/* Status Bar */}
+        <div className="flex justify-between items-center p-2 bg-gray-900 border-t border-gray-700 text-xs text-gray-400">
+          <span>
+            Lines: {markdownContent.split('\n').length} | Chars: {markdownContent.length}
+          </span>
+          <span>Powered by CodeMirror & MathJax</span>
         </div>
       </div>
-
-      <style jsx>{`
-        .prose h1 { font-size: 2em; font-weight: bold; margin: 1em 0 0.5em 0; color: #1f2937; }
-        .prose h2 { font-size: 1.5em; font-weight: bold; margin: 1em 0 0.5em 0; color: #374151; }
-        .prose h3 { font-size: 1.25em; font-weight: bold; margin: 1em 0 0.5em 0; color: #4b5563; }
-        .prose p { margin: 0.75em 0; line-height: 1.6; color: #374151; }
-        .prose pre { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 1em; margin: 1em 0; overflow-x: auto; }
-        .prose code { background: #f1f5f9; padding: 0.2em 0.4em; border-radius: 3px; font-size: 0.875em; color: #dc2626; }
-        .prose pre code { background: none; padding: 0; color: #1f2937; }
-        .prose blockquote { border-left: 4px solid #3b82f6; padding-left: 1em; margin: 1em 0; font-style: italic; color: #6b7280; }
-        .prose table { border-collapse: collapse; width: 100%; margin: 1em 0; }
-        .prose th, .prose td { border: 1px solid #d1d5db; padding: 0.5em; text-align: left; }
-        .prose th { background: #f9fafb; font-weight: bold; }
-        .prose ul, .prose ol { margin: 1em 0; padding-left: 2em; }
-        .prose li { margin: 0.25em 0; }
-        .prose a { color: #3b82f6; text-decoration: underline; }
-        .prose a:hover { color: #1d4ed8; }
-        .prose hr { border: none; border-top: 2px solid #e5e7eb; margin: 2em 0; }
-        .prose del { text-decoration: line-through; color: #6b7280; }
-        .math-display { background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); }
+      <style jsx global>{`
+        .markflow-codemirror .cm-editor {
+          height: 100%;
+          font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace;
+          font-size: 0.875rem;
+          line-height: 1.625;
+          background-color: #2d3748;
+        }
+        .markflow-codemirror .cm-editor.cm-focused {
+          outline: none;
+        }
+        .markflow-preview h1 {
+          font-size: 2em;
+          margin-bottom: 0.5em;
+          border-bottom: 1px solid #4a5568;
+          padding-bottom: 0.3em;
+        }
+        .markflow-preview h2 {
+          font-size: 1.5em;
+          margin-bottom: 0.5em;
+          border-bottom: 1px solid #4a5568;
+          padding-bottom: 0.3em;
+        }
+        .markflow-preview h3 {
+          font-size: 1.25em;
+          margin-bottom: 0.5em;
+        }
+        .markflow-preview p {
+          margin-bottom: 1em;
+        }
+        .markflow-preview ul, .markflow-preview ol {
+          margin-left: 1.5em;
+          margin-bottom: 1em;
+        }
+        .markflow-preview li {
+          margin-bottom: 0.5em;
+        }
+        .markflow-preview pre {
+          background-color: #1a202c;
+          padding: 1em;
+          border-radius: 0.25rem;
+          overflow-x: auto;
+          margin-bottom: 1em;
+        }
+        .markflow-preview code {
+          background-color: #4a5568;
+          padding: 0.2em 0.4em;
+          border-radius: 0.2rem;
+          font-size: 85%;
+        }
+        .markflow-preview blockquote {
+          border-left: 0.25em solid #4a5568;
+          padding-left: 1em;
+          color: #a0aec0;
+          margin-bottom: 1em;
+        }
+        .markflow-preview hr {
+          border: none;
+          border-top: 1px solid #4a5568;
+          margin: 1em 0;
+        }
+        .markflow-preview table {
+          width: 100%;
+          border-collapse: collapse;
+          margin-bottom: 1em;
+        }
+        .markflow-preview th, .markflow-preview td {
+          border: 1px solid #4a5568;
+          padding: 0.5em 0.8em;
+          text-align: left;
+        }
+        .markflow-preview th {
+          background-color: #1a202c;
+        }
+        .markflow-preview a {
+          color: #63b3ed;
+          text-decoration: underline;
+        }
+        .math-block {
+          display: block;
+          overflow-x: auto;
+          margin: 1em 0;
+          padding: 0.5em;
+          background-color: #2d3748;
+          border-radius: 4px;
+          text-align: center;
+        }
+        .math-inline {
+          display: inline-block;
+          white-space: nowrap;
+        }
+        .markflow-preview .MathJax {
+          margin: 1em 0;
+        }
+        .markflow-preview .MathJax_Display {
+          margin: 1em 0;
+          overflow-x: auto;
+          overflow-y: hidden;
+        }
       `}</style>
-    </div>
+    </MathJaxContext>
   );
 };
 
-export default MarkdownEditor;
+export default MarkFlowMarkdownEditor;
