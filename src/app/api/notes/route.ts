@@ -4,6 +4,8 @@ import { connectToDatabase } from '@/lib/mongodb/connect';
 import Note from '@/lib/mongodb/models/Note';
 import User from '@/lib/mongodb/models/User';
 import Workspace, { ICollaborator } from '@/lib/mongodb/models/Workspace';
+import Folder from '@/lib/mongodb/models/Folder';
+import Tag from '@/lib/mongodb/models/Tag';
 
 // GET - Fetch notes for a user's workspace
 export async function GET(request: NextRequest) {
@@ -85,9 +87,9 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { title, content, workspaceId, folderId, tags, isPublic } = body;
 
-    if (!title || !workspaceId) {
+    if (!title) {
       return NextResponse.json({ 
-        error: 'Title and workspace are required' 
+        error: 'Title is required' 
       }, { status: 400 });
     }
 
@@ -96,30 +98,61 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
-    const workspace = await Workspace.findById(workspaceId);
-    if (!workspace) {
-      return NextResponse.json({ error: 'Workspace not found' }, { status: 404 });
-    }
+    let workspace;
+    
+    if (workspaceId) {
+      // Use provided workspace
+      workspace = await Workspace.findById(workspaceId);
+      if (!workspace) {
+        return NextResponse.json({ error: 'Workspace not found' }, { status: 404 });
+      }
 
-    const hasAccess = workspace.owner.toString() === user._id.toString() ||
-      workspace.collaborators.some((collab: ICollaborator) => 
-        collab.user.toString() === user._id.toString() && 
-        collab.role === 'editor'
-      );
+      const hasAccess = workspace.owner.toString() === user._id.toString() ||
+        workspace.collaborators.some((collab: ICollaborator) => 
+          collab.user.toString() === user._id.toString() && 
+          collab.role === 'editor'
+        );
 
-    if (!hasAccess) {
-      return NextResponse.json({ error: 'Access denied' }, { status: 403 });
+      if (!hasAccess) {
+        return NextResponse.json({ error: 'Access denied' }, { status: 403 });
+      }
+    } else {
+      // Create or find default workspace for user
+      workspace = await Workspace.findOne({ 
+        owner: user._id, 
+        isPersonal: true,
+        isArchived: false 
+      });
+
+      if (!workspace) {
+        workspace = await Workspace.create({
+          name: `${user.firstName || user.name || 'My'} Personal Workspace`,
+          description: 'Default personal workspace',
+          owner: user._id,
+          collaborators: [],
+          isPersonal: true,
+          isArchived: false,
+          settings: {
+            theme: 'light',
+            defaultView: 'split'
+          }
+        });
+      }
     }
 
     const note = new Note({
       title,
       content: content || '',
-      workspace: workspaceId,
+      workspace: workspace._id,
       folder: folderId || null,
       author: user._id,
       lastEditedBy: user._id,
       tags: tags || [],
-      isPublic: isPublic || false
+      isPublic: isPublic || false,
+      wordCount: (content || '').split(/\s+/).filter((word: string) => word.length > 0).length,
+      readingTime: Math.ceil((content || '').split(/\s+/).filter((word: string) => word.length > 0).length / 200),
+      version: 1,
+      lastEditedAt: new Date()
     });
 
     await note.save();
@@ -127,8 +160,7 @@ export async function POST(request: NextRequest) {
     await note.populate([
       { path: 'author', select: 'name email avatar' },
       { path: 'lastEditedBy', select: 'name email avatar' },
-      { path: 'tags', select: 'name color' },
-      { path: 'folder', select: 'name color icon' }
+      { path: 'workspace', select: 'name' }
     ]);
 
     return NextResponse.json(note, { status: 201 });
