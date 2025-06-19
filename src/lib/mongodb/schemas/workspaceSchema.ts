@@ -101,4 +101,4 @@ export const workspaceSchema = new Schema(
 workspaceSchema.index({ owner: 1 });
 workspaceSchema.index({ 'collaborators.user': 1 });
 workspaceSchema.index({ createdAt: -1 });
-workspaceSchema.index({ isArchived: 1 }); 
+workspaceSchema.index({ isArchived: 1 });

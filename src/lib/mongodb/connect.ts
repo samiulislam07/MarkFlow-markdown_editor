@@ -5,6 +5,8 @@ import { MONGODB_URI } from "@/config/dbConfig";
 let isConnected = false;
 let connectionPromise: Promise<void> | null = null;
 
+console.log(MONGODB_URI);
+
 export async function connectToDatabase() {
   // If already connected, return immediately
   if (isConnected && mongoose.connection.readyState === 1) {

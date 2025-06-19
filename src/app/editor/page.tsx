@@ -1,7 +1,7 @@
-// import MarkdownEditor from "../components/MarkdownEditor";
-import EnhancedMarkdownEditor from '@/app/components/EnhancedMarkdownEditor'
+import MergedMarkdownEditor from '@/app/components/MergedMarkdownEditor'
 import { auth } from '@clerk/nextjs/server'
 import { redirect } from 'next/navigation'
+import ChatLauncher from '@/app/components/ChatLauncher'
 
 interface EditorPageProps {
   searchParams: Promise<{
@@ -18,5 +18,10 @@ export default async function EditorPage({ searchParams }: EditorPageProps) {
 
   const { workspace } = await searchParams
 
-  return <EnhancedMarkdownEditor workspaceId={workspace} />
+  return (
+    <>
+      <MergedMarkdownEditor workspaceId={workspace} />
+      <ChatLauncher />
+    </>
+  )
 }

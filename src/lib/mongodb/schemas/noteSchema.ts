@@ -146,4 +146,4 @@ noteSchema.pre('save', function(next) {
     this.lastEditedAt = new Date();
   }
   next();
-}); 
+});

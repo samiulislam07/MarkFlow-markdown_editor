@@ -104,4 +104,4 @@ userSchema.index({ lastLogin: -1 });
 userSchema.index({ isActive: 1 });
 userSchema.index({ provider: 1 });
 userSchema.index({ 'subscription.plan': 1 });
-userSchema.index({ 'subscription.status': 1 }); 
+userSchema.index({ 'subscription.status': 1 });

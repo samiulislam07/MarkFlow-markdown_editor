@@ -1,9 +1,13 @@
-import EnhancedMarkdownEditor from '@/app/components/EnhancedMarkdownEditor'
+import MergedMarkdownEditor from '@/app/components/MergedMarkdownEditor'
 import { auth } from '@clerk/nextjs/server'
 import { redirect } from 'next/navigation'
 import { connectToDatabase } from '@/lib/mongodb/connect'
 import Note from '@/lib/mongodb/models/Note'
 import User from '@/lib/mongodb/models/User'
+import Workspace from '@/lib/mongodb/models/Workspace'
+import Folder from '@/lib/mongodb/models/Folder'
+import Tag from '@/lib/mongodb/models/Tag'
+import ChatLauncher from '@/app/components/ChatLauncher'
 
 interface EditorPageProps {
   params: Promise<{
@@ -69,11 +73,14 @@ export default async function DocumentEditorPage({ params }: EditorPageProps) {
     }
 
     return (
-      <EnhancedMarkdownEditor 
-        documentId={id}
-        initialTitle={(note as Record<string, any>).title}
-        initialContent={(note as Record<string, any>).content}
-      />
+      <>
+        <MergedMarkdownEditor 
+          documentId={id}
+          initialTitle={(note as any).title}
+          initialContent={(note as any).content}
+        />
+        <ChatLauncher />
+      </>
     )
   } catch (error) {
     console.error('Error loading document:', error)
@@ -89,4 +96,4 @@ export default async function DocumentEditorPage({ params }: EditorPageProps) {
       </div>
     )
   }
-} 
+}
