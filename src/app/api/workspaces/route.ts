@@ -4,6 +4,9 @@ import { connectToDatabase } from '@/lib/mongodb/connect';
 import Workspace from '@/lib/mongodb/models/Workspace';
 import User from '@/lib/mongodb/models/User';
 import { sendInvitationEmail } from '@/lib/services/emailService';
+import { createWorkspaceChat, syncChatParticipants } from '@/lib/services/chatService'
+import Chat from '@/lib/mongodb/models/WorkspaceChat'
+
 import crypto from 'crypto';
 
 // GET - Fetch user's workspaces
@@ -151,6 +154,11 @@ export async function POST(request: NextRequest) {
       { path: 'collaborators.user', select: 'name email avatar' }
     ]);
 
+
+    await createWorkspaceChat(workspace._id.toString())
+    //await syncChatParticipants(workspace._id.toString())
+    
+    await syncChatParticipants(workspace._id.toString())
     return NextResponse.json({
       ...workspace.toObject(),
       invitationResults

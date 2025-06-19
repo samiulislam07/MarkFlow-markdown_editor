@@ -69,7 +69,7 @@ export async function getUserByClerkId(clerkId: string) {
 export async function getUserSessions(clerkUserId: string) {
   try {
     await connectToDatabase()
-    const { Session } = await import('@/lib/mongodb/models/session')
+    const { Session } = await import('@/lib/mongodb/models/Session')
     return await Session.find({ clerkUserId, status: 'active' }).sort({ createdAt: -1 })
   } catch (error) {
     console.error('Error getting user sessions:', error)

@@ -5,6 +5,7 @@ import Workspace from '@/lib/mongodb/models/Workspace';
 import User from '@/lib/mongodb/models/User';
 import { sendInvitationEmail } from '@/lib/services/emailService';
 import crypto from 'crypto';
+import { createWorkspaceChat } from '@/lib/services/chatService'
 
 interface InvitationParams {
   params: Promise<{
@@ -55,6 +56,8 @@ export async function GET(request: NextRequest, { params }: InvitationParams) {
         inv.email === user.email
       ) || [];
     }
+
+    await createWorkspaceChat(workspace._id.toString())
 
     return NextResponse.json({ invitations });
 
