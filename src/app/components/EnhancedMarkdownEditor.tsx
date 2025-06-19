@@ -48,13 +48,16 @@ const EnhancedMarkdownEditor: React.FC<EnhancedMarkdownEditorProps> = ({
   const saveDocument = async (isManual = false) => {
     if (!user) return;
 
-    // Don't save empty new documents unless it's a manual save
-    if (isNewDocument && !hasUserEdited && !isManual) {
-      return;
-    }
+    // For new documents, save if:
+    // 1. Manual save (user clicked save button)
+    // 2. Document has a title (even if content is empty)
+    // 3. Document has content (even if title is empty)
+    const shouldSave = isManual || 
+                      title.trim() || 
+                      markdown.trim() || 
+                      !isNewDocument;
 
-    // Don't save completely empty content unless it's manual
-    if (!isManual && !markdown.trim() && !title.trim()) {
+    if (!shouldSave) {
       return;
     }
 
@@ -62,7 +65,7 @@ const EnhancedMarkdownEditor: React.FC<EnhancedMarkdownEditorProps> = ({
     
     try {
       const payload = {
-        title: title || 'Untitled Document',
+        title: title.trim() || 'Untitled Document',
         content: markdown,
         workspaceId: null, // We'll need to create a default workspace
       };
@@ -103,7 +106,7 @@ const EnhancedMarkdownEditor: React.FC<EnhancedMarkdownEditorProps> = ({
     }
   };
 
-  // Auto-save effect - only save when user has made edits
+  // Auto-save effect - save when user has made changes
   useEffect(() => {
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
@@ -112,10 +115,10 @@ const EnhancedMarkdownEditor: React.FC<EnhancedMarkdownEditorProps> = ({
     // Check if content has changed from initial values
     const hasContentChanged = markdown !== defaultContent || title !== defaultTitle;
     
-    // Only proceed if user has made changes and either:
-    // 1. This is an existing document, OR
-    // 2. This is a new document AND user has actually typed something (not just empty)
-    if (hasContentChanged && (hasUserEdited || (isNewDocument && (markdown.trim() || title.trim())))) {
+    // Auto-save if:
+    // 1. Content has changed AND
+    // 2. Either this is an existing document OR user has provided a title or content
+    if (hasContentChanged && (!isNewDocument || title.trim() || markdown.trim())) {
       setSaveStatus('unsaved');
       
       // Mark as user edited if content has changed

@@ -87,7 +87,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { title, content, workspaceId, folderId, tags, isPublic } = body;
 
-    if (!title) {
+    if (!title || title.trim() === '') {
       return NextResponse.json({ 
         error: 'Title is required' 
       }, { status: 400 });
@@ -140,17 +140,20 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    const noteContent = content || '';
+    const words = noteContent.split(/\s+/).filter((word: string) => word.length > 0);
+    
     const note = new Note({
-      title,
-      content: content || '',
+      title: title.trim(),
+      content: noteContent,
       workspace: workspace._id,
       folder: folderId || null,
       author: user._id,
       lastEditedBy: user._id,
       tags: tags || [],
       isPublic: isPublic || false,
-      wordCount: (content || '').split(/\s+/).filter((word: string) => word.length > 0).length,
-      readingTime: Math.ceil((content || '').split(/\s+/).filter((word: string) => word.length > 0).length / 200),
+      wordCount: words.length,
+      readingTime: Math.ceil(words.length / 200) || 0,
       version: 1,
       lastEditedAt: new Date()
     });

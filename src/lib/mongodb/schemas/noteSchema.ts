@@ -10,7 +10,7 @@ export const noteSchema = new Schema(
     },
     content: { 
       type: String, 
-      required: true,
+      required: false,
       default: '' 
     },
     workspace: { 
@@ -139,11 +139,12 @@ noteSchema.pre('save', function(next) {
   
   if (this.isModified('content')) {
     // Calculate word count
-    const words = this.content.split(/\s+/).filter(word => word.length > 0);
+    const content = this.content || '';
+    const words = content.split(/\s+/).filter(word => word.length > 0);
     this.wordCount = words.length;
     
     // Calculate reading time (assuming 200 words per minute)
-    this.readingTime = Math.ceil(this.wordCount / 200);
+    this.readingTime = Math.ceil(this.wordCount / 200) || 0;
     
     // Update lastEditedAt
     this.lastEditedAt = new Date();
