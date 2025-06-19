@@ -16,20 +16,17 @@ export const noteSchema = new Schema(
     workspace: { 
       type: Schema.Types.ObjectId, 
       ref: 'Workspace', 
-      required: true,
-      index: true 
+      required: true
     },
     folder: { 
       type: Schema.Types.ObjectId, 
       ref: 'Folder',
-      default: null,
-      index: true 
+      default: null
     },
     author: { 
       type: Schema.Types.ObjectId, 
       ref: 'User', 
-      required: true,
-      index: true 
+      required: true
     },
     tags: [{ 
       type: Schema.Types.ObjectId, 
@@ -107,6 +104,7 @@ export const noteSchema = new Schema(
 );
 
 // Indexes for better performance
+// Using schema.index() method only, not duplicating with field-level index: true
 noteSchema.index({ workspace: 1 });
 noteSchema.index({ folder: 1 });
 noteSchema.index({ author: 1 });
@@ -149,4 +147,4 @@ noteSchema.pre('save', function(next) {
     this.lastEditedAt = new Date();
   }
   next();
-}); 
+});

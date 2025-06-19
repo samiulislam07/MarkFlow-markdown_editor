@@ -17,8 +17,7 @@ export const workspaceSchema = new Schema(
     owner: { 
       type: Schema.Types.ObjectId, 
       ref: 'User', 
-      required: true,
-      index: true 
+      required: true
     },
     collaborators: [{
       user: { 
@@ -64,7 +63,8 @@ export const workspaceSchema = new Schema(
 );
 
 // Indexes for better performance
+// Using schema.index() method only, not duplicating with field-level index: true
 workspaceSchema.index({ owner: 1 });
 workspaceSchema.index({ 'collaborators.user': 1 });
 workspaceSchema.index({ createdAt: -1 });
-workspaceSchema.index({ isArchived: 1 }); 
+workspaceSchema.index({ isArchived: 1 });

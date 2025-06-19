@@ -11,20 +11,17 @@ export const folderSchema = new Schema(
     workspace: { 
       type: Schema.Types.ObjectId, 
       ref: 'Workspace', 
-      required: true,
-      index: true 
+      required: true
     },
     parent: { 
       type: Schema.Types.ObjectId, 
       ref: 'Folder',
-      default: null,
-      index: true 
+      default: null
     },
     creator: { 
       type: Schema.Types.ObjectId, 
       ref: 'User', 
-      required: true,
-      index: true 
+      required: true
     },
     notes: [{ 
       type: Schema.Types.ObjectId, 
@@ -56,6 +53,7 @@ export const folderSchema = new Schema(
 );
 
 // Indexes for better performance
+// Using schema.index() method only, not duplicating with field-level index: true
 folderSchema.index({ workspace: 1 });
 folderSchema.index({ parent: 1 });
 folderSchema.index({ creator: 1 });
@@ -70,4 +68,4 @@ folderSchema.pre('save', async function(next) {
     return next(error);
   }
   next();
-}); 
+});

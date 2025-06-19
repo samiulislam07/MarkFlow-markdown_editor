@@ -5,8 +5,7 @@ export const userSchema = new Schema(
     clerkId: { 
       type: String, 
       required: true, 
-      unique: true,
-      index: true 
+      unique: true
     },
     email: { 
       type: String, 
@@ -97,6 +96,7 @@ export const userSchema = new Schema(
 );
 
 // Indexes for better performance
+// Using schema.index() method only, not duplicating with field-level index: true
 userSchema.index({ clerkId: 1 });
 userSchema.index({ email: 1 });
 userSchema.index({ username: 1 });
@@ -105,4 +105,4 @@ userSchema.index({ lastLogin: -1 });
 userSchema.index({ isActive: 1 });
 userSchema.index({ provider: 1 });
 userSchema.index({ 'subscription.plan': 1 });
-userSchema.index({ 'subscription.status': 1 }); 
+userSchema.index({ 'subscription.status': 1 });

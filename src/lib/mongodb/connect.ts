@@ -14,7 +14,12 @@ export async function connectToDatabase() {
   try {
     const options = {
       dbName: "markflow",
-      bufferCommands: false,
+      bufferCommands: true, // Changed to true to allow buffering commands before connection is established
+      serverSelectionTimeoutMS: 10000, // 10 seconds timeout for server selection
+      connectTimeoutMS: 10000, // 10 seconds timeout for initial connection
+      socketTimeoutMS: 45000, // 45 seconds timeout for socket operations
+      family: 4, // Use IPv4, skip trying IPv6
+      maxPoolSize: 10, // Maximum number of sockets to keep open
     };
 
     await mongoose.connect(MONGODB_URI, options);
