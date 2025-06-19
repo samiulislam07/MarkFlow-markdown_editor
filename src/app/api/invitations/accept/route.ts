@@ -4,6 +4,7 @@ import { connectToDatabase } from '@/lib/mongodb/connect';
 import Workspace from '@/lib/mongodb/models/Workspace';
 import User from '@/lib/mongodb/models/User';
 import { sendWelcomeEmail } from '@/lib/services/emailService';
+import { createWorkspaceChat, syncChatParticipants } from '@/lib/services/chatService'
 
 // POST - Accept invitation
 export async function POST(request: NextRequest) {
@@ -97,10 +98,14 @@ export async function POST(request: NextRequest) {
       joinedAt: new Date()
     });
 
+    
+
     // Mark invitation as accepted
     invitation.status = 'accepted';
     
     await workspace.save();
+
+    await syncChatParticipants(workspace._id.toString())
 
     return NextResponse.json({ 
       message: 'Invitation accepted successfully',
