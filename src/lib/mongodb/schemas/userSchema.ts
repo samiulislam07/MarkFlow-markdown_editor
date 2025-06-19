@@ -95,12 +95,7 @@ export const userSchema = new Schema(
   }
 );
 
-<<<<<<< HEAD
-// Indexes for better performance
-// Using schema.index() method only, not duplicating with field-level index: true
-=======
 // Additional indexes for better performance 
->>>>>>> 4a3ae4c5684ee2f3b2a4c4edb2f646edc0902d66
 userSchema.index({ clerkId: 1 });
 userSchema.index({ email: 1 });
 userSchema.index({ username: 1 });

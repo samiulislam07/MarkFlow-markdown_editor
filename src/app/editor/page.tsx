@@ -16,16 +16,12 @@ export default async function EditorPage({ searchParams }: EditorPageProps) {
     redirect('/sign-in')
   }
 
-<<<<<<< HEAD
+  const { workspace } = await searchParams
+
   return (
     <>
-      <MergedMarkdownEditor />
+      <MergedMarkdownEditor workspaceId={workspace} />
       <ChatLauncher />
     </>
   )
-=======
-  const { workspace } = await searchParams
-
-  return <EnhancedMarkdownEditor workspaceId={workspace} />
->>>>>>> 4a3ae4c5684ee2f3b2a4c4edb2f646edc0902d66
 }

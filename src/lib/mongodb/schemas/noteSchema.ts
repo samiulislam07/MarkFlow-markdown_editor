@@ -103,12 +103,7 @@ export const noteSchema = new Schema(
   }
 );
 
-<<<<<<< HEAD
-// Indexes for better performance
-// Using schema.index() method only, not duplicating with field-level index: true
-=======
 // Additional indexes for better performance
->>>>>>> 4a3ae4c5684ee2f3b2a4c4edb2f646edc0902d66
 noteSchema.index({ workspace: 1 });
 noteSchema.index({ folder: 1 });
 noteSchema.index({ author: 1 });

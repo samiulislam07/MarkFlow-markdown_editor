@@ -1,14 +1,11 @@
+// "use client"
 import { auth, currentUser } from '@clerk/nextjs/server'
 import mongoose from 'mongoose'
 import { connectToDatabase } from '@/lib/mongodb/connect'
 import User from '@/lib/mongodb/models/User'
 import Note from '@/lib/mongodb/models/Note'
 import Workspace from '@/lib/mongodb/models/Workspace'
-<<<<<<< HEAD
-import { FileText, Plus, Clock, Search, Filter, Grid, List, Bookmark } from 'lucide-react'
-=======
 import { FileText, Plus, Clock, Search, Filter, Grid, List, Bookmark, Users, Settings, FolderOpen, UserIcon } from 'lucide-react'
->>>>>>> 4a3ae4c5684ee2f3b2a4c4edb2f646edc0902d66
 import Link from 'next/link'
 import DashboardDocuments from '../components/DashboardDocuments'
 import ChatLauncher from '../components/ChatLauncher';
@@ -84,7 +81,6 @@ export default async function Dashboard() {
     // Connect to database and ensure connection is established
     await connectToDatabase()
     
-<<<<<<< HEAD
     // Make sure mongoose is connected before proceeding
     if (mongoose.connection.readyState !== 1) {
       // Wait for connection to be fully established
@@ -100,54 +96,13 @@ export default async function Dashboard() {
       })
     }
     
-    // Get or create user
-=======
     // Get or create user - improved logic to handle existing users
->>>>>>> 4a3ae4c5684ee2f3b2a4c4edb2f646edc0902d66
     let dbUser = await User.findOne({ clerkId: userId })
     
     if (!dbUser) {
-<<<<<<< HEAD
-      // Generate a unique username if not provided by Clerk
-      let username = clerkUser.username || '';
-      if (!username) {
-        // Create a base username from email or name
-        const emailBase = clerkUser.emailAddresses[0]?.emailAddress?.split('@')[0] || '';
-        const nameBase = `${clerkUser.firstName || ''}${clerkUser.lastName || ''}`.toLowerCase().replace(/\s+/g, '');
-        username = emailBase || nameBase || `user${Date.now().toString().slice(-6)}`;
-        
-        // Check if username exists and append random numbers if needed
-        const usernameExists = await User.findOne({ username });
-        if (usernameExists) {
-          username = `${username}${Math.floor(Math.random() * 10000)}`;
-        }
-      }
-      
-      dbUser = await User.create({
-        clerkId: userId,
-        email: clerkUser.emailAddresses[0]?.emailAddress || '',
-        name: `${clerkUser.firstName || ''} ${clerkUser.lastName || ''}`.trim() || 'Unknown User',
-        firstName: clerkUser.firstName || '',
-        lastName: clerkUser.lastName || '',
-        username: username,
-        avatar: clerkUser.imageUrl || '',
-        emailVerified: clerkUser.emailAddresses[0]?.verification?.status === 'verified' || false,
-        provider: 'email',
-        preferences: {
-          theme: 'dark',
-          language: 'en',
-          notifications: { email: true, push: true, mentions: true, comments: true }
-        },
-        subscription: { plan: 'free', status: 'active' },
-        isActive: true,
-        lastLogin: new Date(),
-        createdAt: new Date(),
-        updatedAt: new Date()
-=======
       // Check if user exists with same email but different clerkId
       const existingUserByEmail = await User.findOne({ 
         email: clerkUser.emailAddresses[0]?.emailAddress 
->>>>>>> 4a3ae4c5684ee2f3b2a4c4edb2f646edc0902d66
       })
       
       if (existingUserByEmail) {
@@ -177,12 +132,28 @@ export default async function Dashboard() {
         // Create new user only if no existing user found
         console.log('🆕 Creating new user in dashboard:', userId)
         try {
+          // Generate a unique username if not provided by Clerk
+          let username = clerkUser.username || '';
+          if (!username) {
+            // Create a base username from email or name
+            const emailBase = clerkUser.emailAddresses[0]?.emailAddress?.split('@')[0] || '';
+            const nameBase = `${clerkUser.firstName || ''}${clerkUser.lastName || ''}`.toLowerCase().replace(/\s+/g, '');
+            username = emailBase || nameBase || `user${Date.now().toString().slice(-6)}`;
+            
+            // Check if username exists and append random numbers if needed
+            const usernameExists = await User.findOne({ username });
+            if (usernameExists) {
+              username = `${username}${Math.floor(Math.random() * 10000)}`;
+            }
+          }
+          
           const userData: any = {
             clerkId: userId,
             email: clerkUser.emailAddresses[0]?.emailAddress || '',
             name: `${clerkUser.firstName || ''} ${clerkUser.lastName || ''}`.trim() || 'Unknown User',
             firstName: clerkUser.firstName || '',
             lastName: clerkUser.lastName || '',
+            username: username,
             avatar: clerkUser.imageUrl || '',
             emailVerified: clerkUser.emailAddresses[0]?.verification?.status === 'verified' || false,
             provider: 'email',
@@ -194,68 +165,23 @@ export default async function Dashboard() {
             subscription: { plan: 'free', status: 'active' },
             isActive: true,
             lastLogin: new Date(),
-          }
-          
-          // Only set username if it exists and is not empty
-          if (clerkUser.username && clerkUser.username.trim()) {
-            userData.username = clerkUser.username.trim()
+            createdAt: new Date(),
+            updatedAt: new Date()
           }
           
           dbUser = await User.create(userData)
-        } catch (createError: any) {
-          // If creation fails due to duplicate key, try to find and update the user
-          if (createError.code === 11000) {
-            console.log('🔄 Duplicate key error, attempting to find and update user')
-            const updateData: any = {
-              clerkId: userId,
-              email: clerkUser.emailAddresses[0]?.emailAddress || '',
-              name: `${clerkUser.firstName || ''} ${clerkUser.lastName || ''}`.trim() || 'Unknown User',
-              firstName: clerkUser.firstName || '',
-              lastName: clerkUser.lastName || '',
-              avatar: clerkUser.imageUrl || '',
-              emailVerified: clerkUser.emailAddresses[0]?.verification?.status === 'verified' || false,
-              lastLogin: new Date(),
-              updatedAt: new Date()
-            }
-            
-            // Only set username if it exists and is not empty
-            if (clerkUser.username && clerkUser.username.trim()) {
-              updateData.username = clerkUser.username.trim()
-            }
-            
-            dbUser = await User.findOneAndUpdate(
-              { 
-                $or: [
-                  { clerkId: userId },
-                  { email: clerkUser.emailAddresses[0]?.emailAddress }
-                ]
-              },
-              updateData,
-              { new: true, upsert: true }
-            )
-          } else {
-            throw createError
-          }
+          console.log('✅ New user created successfully:', dbUser._id)
+        } catch (error) {
+          console.error('❌ Error creating user:', error)
+          throw new Error('Failed to create user account')
         }
       }
     } else {
-      // Update existing user's last login
-      const existingUserUpdate: any = { 
+      // Update last login for existing user
+      await User.findByIdAndUpdate(dbUser._id, {
         lastLogin: new Date(),
-        updatedAt: new Date(),
-        // Also update profile info in case it changed in Clerk
-        firstName: clerkUser.firstName || dbUser.firstName,
-        lastName: clerkUser.lastName || dbUser.lastName,
-        avatar: clerkUser.imageUrl || dbUser.avatar,
-        emailVerified: clerkUser.emailAddresses[0]?.verification?.status === 'verified' || dbUser.emailVerified,
-      }
-      
-      // Only update username if Clerk has a valid username
-      if (clerkUser.username && clerkUser.username.trim()) {
-        existingUserUpdate.username = clerkUser.username.trim()
-      }
-      
-      await User.findByIdAndUpdate(dbUser._id, existingUserUpdate)
+        updatedAt: new Date()
+      })
     }
 
     // Ensure user has a default personal workspace
@@ -646,11 +572,7 @@ export default async function Dashboard() {
             <p className="text-red-700 mb-4">There was an error loading your dashboard. Please try refreshing the page.</p>
             <Link
               href="/dashboard"
-<<<<<<< HEAD
               className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-=======
-              className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors inline-block"
->>>>>>> 4a3ae4c5684ee2f3b2a4c4edb2f646edc0902d66
             >
               Refresh Page
             </Link>
