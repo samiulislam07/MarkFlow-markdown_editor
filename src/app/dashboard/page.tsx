@@ -49,34 +49,96 @@ export default async function Dashboard() {
     // Connect to database
     await connectToDatabase()
     
-    // Get or create user
+    // Get or create user - improved logic to handle existing users
     let dbUser = await User.findOne({ clerkId: userId })
+    
     if (!dbUser) {
-      dbUser = await User.create({
-        clerkId: userId,
-        email: clerkUser.emailAddresses[0]?.emailAddress || '',
-        name: `${clerkUser.firstName || ''} ${clerkUser.lastName || ''}`.trim() || 'Unknown User',
-        firstName: clerkUser.firstName || '',
-        lastName: clerkUser.lastName || '',
-        username: clerkUser.username || '',
-        avatar: clerkUser.imageUrl || '',
-        emailVerified: clerkUser.emailAddresses[0]?.verification?.status === 'verified' || false,
-        provider: 'email',
-        preferences: {
-          theme: 'dark',
-          language: 'en',
-          notifications: { email: true, push: true, mentions: true, comments: true }
-        },
-        subscription: { plan: 'free', status: 'active' },
-        isActive: true,
-        lastLogin: new Date(),
-        createdAt: new Date(),
-        updatedAt: new Date()
+      // Check if user exists with same email but different clerkId
+      const existingUserByEmail = await User.findOne({ 
+        email: clerkUser.emailAddresses[0]?.emailAddress 
       })
+      
+      if (existingUserByEmail) {
+        // Update existing user with new clerkId instead of creating duplicate
+        console.log('🔄 Updating existing user with new Clerk ID:', userId)
+        dbUser = await User.findByIdAndUpdate(
+          existingUserByEmail._id,
+          {
+            clerkId: userId,
+            firstName: clerkUser.firstName || existingUserByEmail.firstName,
+            lastName: clerkUser.lastName || existingUserByEmail.lastName,
+            username: clerkUser.username || existingUserByEmail.username,
+            avatar: clerkUser.imageUrl || existingUserByEmail.avatar,
+            emailVerified: clerkUser.emailAddresses[0]?.verification?.status === 'verified' || existingUserByEmail.emailVerified,
+            lastLogin: new Date(),
+            updatedAt: new Date()
+          },
+          { new: true }
+        )
+      } else {
+        // Create new user only if no existing user found
+        console.log('🆕 Creating new user in dashboard:', userId)
+        try {
+          dbUser = await User.create({
+            clerkId: userId,
+            email: clerkUser.emailAddresses[0]?.emailAddress || '',
+            name: `${clerkUser.firstName || ''} ${clerkUser.lastName || ''}`.trim() || 'Unknown User',
+            firstName: clerkUser.firstName || '',
+            lastName: clerkUser.lastName || '',
+            username: clerkUser.username || '',
+            avatar: clerkUser.imageUrl || '',
+            emailVerified: clerkUser.emailAddresses[0]?.verification?.status === 'verified' || false,
+            provider: 'email',
+            preferences: {
+              theme: 'dark',
+              language: 'en',
+              notifications: { email: true, push: true, mentions: true, comments: true }
+            },
+            subscription: { plan: 'free', status: 'active' },
+            isActive: true,
+            lastLogin: new Date(),
+          })
+        } catch (createError: any) {
+          // If creation fails due to duplicate key, try to find and update the user
+          if (createError.code === 11000) {
+            console.log('🔄 Duplicate key error, attempting to find and update user')
+            dbUser = await User.findOneAndUpdate(
+              { 
+                $or: [
+                  { clerkId: userId },
+                  { email: clerkUser.emailAddresses[0]?.emailAddress }
+                ]
+              },
+              {
+                clerkId: userId,
+                email: clerkUser.emailAddresses[0]?.emailAddress || '',
+                name: `${clerkUser.firstName || ''} ${clerkUser.lastName || ''}`.trim() || 'Unknown User',
+                firstName: clerkUser.firstName || '',
+                lastName: clerkUser.lastName || '',
+                username: clerkUser.username || '',
+                avatar: clerkUser.imageUrl || '',
+                emailVerified: clerkUser.emailAddresses[0]?.verification?.status === 'verified' || false,
+                lastLogin: new Date(),
+                updatedAt: new Date()
+              },
+              { new: true, upsert: true }
+            )
+          } else {
+            throw createError
+          }
+        }
+      }
     } else {
+      // Update existing user's last login
       await User.findByIdAndUpdate(dbUser._id, { 
         lastLogin: new Date(),
-        updatedAt: new Date()
+        updatedAt: new Date(),
+        // Also update profile info in case it changed in Clerk
+        firstName: clerkUser.firstName || dbUser.firstName,
+        lastName: clerkUser.lastName || dbUser.lastName,
+        username: clerkUser.username || dbUser.username,
+        avatar: clerkUser.imageUrl || dbUser.avatar,
+        emailVerified: clerkUser.emailAddresses[0]?.verification?.status === 'verified' || dbUser.emailVerified,
       })
     }
 

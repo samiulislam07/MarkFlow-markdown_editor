@@ -45,19 +45,77 @@ export async function POST(request: NextRequest) {
 
     switch (eventType) {
       case 'user.created':
-        console.log('🆕 Creating new user:', id)
-        await User.create({
-          clerkId: id,
-          email: email_addresses[0]?.email_address,
-          firstName: first_name,
-          lastName: last_name,
-          username: username,
-          avatar: image_url,
-          provider: provider,
-          emailVerified: email_addresses[0]?.verification?.status === 'verified',
-          lastSignIn: new Date(),
-        })
-        console.log('✅ User created successfully')
+        console.log('🆕 Creating new user via webhook:', id)
+        try {
+          // Check if user already exists with either clerkId or email
+          const existingUser = await User.findOne({
+            $or: [
+              { clerkId: id },
+              { email: email_addresses[0]?.email_address }
+            ]
+          })
+
+          if (existingUser) {
+            // Update existing user instead of creating duplicate
+            console.log('🔄 User already exists, updating with webhook data:', id)
+            await User.findByIdAndUpdate(existingUser._id, {
+              clerkId: id,
+              email: email_addresses[0]?.email_address,
+              firstName: first_name || existingUser.firstName,
+              lastName: last_name || existingUser.lastName,
+              username: username || existingUser.username,
+              avatar: image_url || existingUser.avatar,
+              provider: provider,
+              emailVerified: email_addresses[0]?.verification?.status === 'verified',
+              lastSignIn: new Date(),
+              updatedAt: new Date(),
+            })
+          } else {
+            // Create new user
+            await User.create({
+              clerkId: id,
+              email: email_addresses[0]?.email_address,
+              name: `${first_name || ''} ${last_name || ''}`.trim() || 'Unknown User',
+              firstName: first_name,
+              lastName: last_name,
+              username: username,
+              avatar: image_url,
+              provider: provider,
+              emailVerified: email_addresses[0]?.verification?.status === 'verified',
+              lastSignIn: new Date(),
+            })
+          }
+          console.log('✅ User processed successfully')
+        } catch (createError: any) {
+          // Handle duplicate key errors gracefully
+          if (createError.code === 11000) {
+            console.log('🔄 Duplicate key in webhook, attempting upsert:', id)
+            await User.findOneAndUpdate(
+              { 
+                $or: [
+                  { clerkId: id },
+                  { email: email_addresses[0]?.email_address }
+                ]
+              },
+              {
+                clerkId: id,
+                email: email_addresses[0]?.email_address,
+                name: `${first_name || ''} ${last_name || ''}`.trim() || 'Unknown User',
+                firstName: first_name,
+                lastName: last_name,
+                username: username,
+                avatar: image_url,
+                provider: provider,
+                emailVerified: email_addresses[0]?.verification?.status === 'verified',
+                lastSignIn: new Date(),
+                updatedAt: new Date(),
+              },
+              { new: true, upsert: true }
+            )
+          } else {
+            throw createError
+          }
+        }
         break
 
       case 'user.updated':
