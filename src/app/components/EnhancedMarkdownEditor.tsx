@@ -1,5 +1,5 @@
 "use client"
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useUser } from '@clerk/nextjs';
 import { useRouter } from 'next/navigation';
 import { 
@@ -7,6 +7,7 @@ import {
   List, ListOrdered, Quote, Minus, FileText, ArrowLeft, 
   Check, AlertCircle, Loader2 
 } from 'lucide-react';
+import LatexRenderer from './LatexRenderer';
 
 interface EnhancedMarkdownEditorProps {
   documentId?: string;
@@ -22,36 +23,21 @@ const EnhancedMarkdownEditor: React.FC<EnhancedMarkdownEditorProps> = ({
   const { user } = useUser();
   const router = useRouter();
   
+  // Check if this is a new document (no documentId)
+  const isNewDocument = !documentId;
+  
+  // For new documents, start with empty content
+  const defaultContent = isNewDocument ? '' : initialContent;
+  const defaultTitle = isNewDocument ? '' : (initialTitle || 'Untitled Document');
+  
   // Document state
-  const [title, setTitle] = useState(initialTitle || 'Untitled Document');
-  const [markdown, setMarkdown] = useState(initialContent || `# Welcome to MarkFlow!
-
-Start writing your document here. You can use **markdown** formatting and LaTeX math expressions.
-
-## Mathematical Expressions
-
-Inline math: $E = mc^2$ and $\\alpha + \\beta = \\gamma$
-
-Block math:
-$$
-\\int_{-\\infty}^{\\infty} e^{-x^2} dx = \\sqrt{\\pi}
-$$
-
-## Features
-
-- **Bold** and *italic* text
-- \`Code snippets\`
-- [Links](https://example.com)
-- Lists and tables
-- LaTeX math support
-
-Happy writing! 🚀
-`);
+  const [title, setTitle] = useState(defaultTitle);
+  const [markdown, setMarkdown] = useState(defaultContent);
+  const [hasUserEdited, setHasUserEdited] = useState(!isNewDocument); // Existing docs are considered "edited"
 
   // UI state
-  const [htmlContent, setHtmlContent] = useState('');
   const [showPreview, setShowPreview] = useState(true);
-  const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'unsaved' | 'error'>('saved');
+  const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'unsaved' | 'error'>(isNewDocument ? 'unsaved' : 'saved');
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -61,6 +47,16 @@ Happy writing! 🚀
   // Auto-save functionality
   const saveDocument = async (isManual = false) => {
     if (!user) return;
+
+    // Don't save empty new documents unless it's a manual save
+    if (isNewDocument && !hasUserEdited && !isManual) {
+      return;
+    }
+
+    // Don't save completely empty content unless it's manual
+    if (!isManual && !markdown.trim() && !title.trim()) {
+      return;
+    }
 
     setSaveStatus('saving');
     
@@ -92,6 +88,7 @@ Happy writing! 🚀
         const savedDoc = await response.json();
         setSaveStatus('saved');
         setLastSaved(new Date());
+        setHasUserEdited(true); // Mark as edited once saved
         
         // If this was a new document, redirect to the document URL
         if (!documentId && savedDoc._id) {
@@ -106,14 +103,25 @@ Happy writing! 🚀
     }
   };
 
-  // Auto-save effect
+  // Auto-save effect - only save when user has made edits
   useEffect(() => {
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
     }
 
-    if (markdown !== initialContent || title !== initialTitle) {
+    // Check if content has changed from initial values
+    const hasContentChanged = markdown !== defaultContent || title !== defaultTitle;
+    
+    // Only proceed if user has made changes and either:
+    // 1. This is an existing document, OR
+    // 2. This is a new document AND user has actually typed something (not just empty)
+    if (hasContentChanged && (hasUserEdited || (isNewDocument && (markdown.trim() || title.trim())))) {
       setSaveStatus('unsaved');
+      
+      // Mark as user edited if content has changed
+      if (!hasUserEdited && (markdown.trim() || title.trim())) {
+        setHasUserEdited(true);
+      }
       
       // Auto-save after 3 seconds of inactivity
       saveTimeoutRef.current = setTimeout(() => {
@@ -126,35 +134,27 @@ Happy writing! 🚀
         clearTimeout(saveTimeoutRef.current);
       }
     };
-  }, [markdown, title, initialContent, initialTitle]);
+  }, [markdown, title, defaultContent, defaultTitle, hasUserEdited, isNewDocument]);
 
-  // Markdown processing (same as before)
+  // Markdown processing with proper LaTeX handling
   const processMarkdown = (text: string) => {
     let processed = text
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;');
 
-    // LaTeX processing
-    processed = processed.replace(/\$\$([\s\S]*?)\$\$/g, (match, latex) => {
-      return `<div class="math-block">$$${latex}$$</div>`;
-    });
-    processed = processed.replace(/\$([^$\n]+?)\$/g, (match, latex) => {
-      return `<span class="math-inline">$${latex}$</span>`;
-    });
-
     // Headers
     processed = processed.replace(/^### (.*$)/gm, '<h3>$1</h3>');
     processed = processed.replace(/^## (.*$)/gm, '<h2>$1</h2>');
     processed = processed.replace(/^# (.*$)/gm, '<h1>$1</h1>');
 
-    // Code blocks
+    // Code blocks (process before LaTeX to avoid conflicts)
     processed = processed.replace(/```(\w+)?\n([\s\S]*?)```/g, (match, lang, code) => {
       const language = lang || 'text';
       return `<pre><code class="language-${language}">${code.trim()}</code></pre>`;
     });
 
-    // Inline code
+    // Inline code (process before LaTeX to avoid conflicts)
     processed = processed.replace(/`([^`]+)`/g, '<code>$1</code>');
 
     // Text formatting
@@ -195,20 +195,7 @@ Happy writing! 🚀
     return processed;
   };
 
-  const renderLatex = (html: string) => {
-    let rendered = html;
-    rendered = rendered.replace(/<div class="math-block">\$\$([\s\S]*?)\$\$<\/div>/g, 
-      '<div class="math-display bg-blue-50 p-4 my-4 rounded border-l-4 border-blue-500 font-mono text-center text-lg">$$$1$$</div>');
-    rendered = rendered.replace(/<span class="math-inline">\$(.*?)\$<\/span>/g, 
-      '<span class="math-inline bg-blue-50 px-1 rounded font-mono text-blue-800">$1</span>');
-    return rendered;
-  };
 
-  useEffect(() => {
-    const html = processMarkdown(markdown);
-    const rendered = renderLatex(html);
-    setHtmlContent(rendered);
-  }, [markdown]);
 
   const insertText = (before: string, after = '') => {
     const textarea = textareaRef.current;
@@ -219,6 +206,11 @@ Happy writing! 🚀
     const selectedText = markdown.substring(start, end);
     const newText = markdown.substring(0, start) + before + selectedText + after + markdown.substring(end);
     setMarkdown(newText);
+    
+    // Mark as user edited
+    if (!hasUserEdited) {
+      setHasUserEdited(true);
+    }
     
     setTimeout(() => {
       textarea.focus();
@@ -296,7 +288,12 @@ Happy writing! 🚀
               ref={titleRef}
               type="text"
               value={title}
-              onChange={(e) => setTitle(e.target.value)}
+              onChange={(e) => {
+                setTitle(e.target.value);
+                if (!hasUserEdited && e.target.value.trim()) {
+                  setHasUserEdited(true);
+                }
+              }}
               className="text-xl font-semibold text-gray-800 bg-transparent border-none outline-none focus:bg-gray-50 rounded px-2 py-1 flex-1 max-w-md"
               placeholder="Document title..."
             />
@@ -370,7 +367,12 @@ Happy writing! 🚀
           <textarea
             ref={textareaRef}
             value={markdown}
-            onChange={(e) => setMarkdown(e.target.value)}
+            onChange={(e) => {
+              setMarkdown(e.target.value);
+              if (!hasUserEdited && e.target.value.trim()) {
+                setHasUserEdited(true);
+              }
+            }}
             className="flex-1 p-4 font-mono text-sm resize-none outline-none bg-white"
             placeholder="Start writing your markdown with LaTeX support..."
             spellCheck={false}
@@ -383,12 +385,9 @@ Happy writing! 🚀
             <div className="bg-gray-100 px-4 py-2 text-sm text-gray-600 border-b border-gray-200">
               Preview
             </div>
-            <div 
-              className="flex-1 p-4 overflow-auto bg-white prose prose-sm max-w-none"
-              dangerouslySetInnerHTML={{ __html: htmlContent }}
-              style={{
-                fontFamily: 'system-ui, -apple-system, sans-serif',
-              }}
+            <LatexRenderer 
+              content={markdown}
+              className="flex-1 p-4 overflow-auto bg-white"
             />
           </div>
         )}

@@ -3,23 +3,42 @@ import mongoose from "mongoose";
 import { MONGODB_URI } from "@/config/dbConfig";
 
 let isConnected = false;
+let connectionPromise: Promise<void> | null = null;
 
 export async function connectToDatabase() {
-  if (isConnected) return;
-
-  try {
-    const options = {
-      dbName: "markflow",
-      bufferCommands: false,
-    };
-
-    await mongoose.connect(MONGODB_URI, options);
-    isConnected = true;
-    console.log("✅ Connected to MongoDB (MarkFlow)");
-  } catch (error) {
-    console.error("❌ MongoDB connection error:", error);
-    throw new Error("Failed to connect to MongoDB");
+  // If already connected, return immediately
+  if (isConnected && mongoose.connection.readyState === 1) {
+    return;
   }
+
+  // If connection is in progress, wait for it
+  if (connectionPromise) {
+    return connectionPromise;
+  }
+
+  // Start new connection
+  connectionPromise = (async () => {
+    try {
+      const options = {
+        dbName: "markflow",
+        bufferCommands: true, // Enable buffering to prevent timing issues
+        maxPoolSize: 10,
+        serverSelectionTimeoutMS: 5000,
+        socketTimeoutMS: 45000,
+      };
+
+      await mongoose.connect(MONGODB_URI, options);
+      isConnected = true;
+      console.log("✅ Connected to MongoDB (MarkFlow)");
+    } catch (error) {
+      console.error("❌ MongoDB connection error:", error);
+      isConnected = false;
+      connectionPromise = null;
+      throw new Error("Failed to connect to MongoDB");
+    }
+  })();
+
+  return connectionPromise;
 }
 
 export function getConnectionStatus() {

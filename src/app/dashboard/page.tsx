@@ -3,9 +3,7 @@ import { connectToDatabase } from '@/lib/mongodb/connect'
 import User from '@/lib/mongodb/models/User'
 import Note from '@/lib/mongodb/models/Note'
 import Workspace from '@/lib/mongodb/models/Workspace'
-import Folder from '@/lib/mongodb/models/Folder'
-import Tag from '@/lib/mongodb/models/Tag'
-import { FileText, Plus, Clock, Search, Filter, Grid, List, Calendar, Bookmark } from 'lucide-react'
+import { FileText, Plus, Clock, Search, Filter, Grid, List, Bookmark } from 'lucide-react'
 import Link from 'next/link'
 import DashboardDocuments from '../components/DashboardDocuments'
 
@@ -89,12 +87,12 @@ export default async function Dashboard() {
         { 'collaborators.user': dbUser._id }
       ],
       isArchived: false
-    }).select('_id name')
+    }).select('_id name').lean()
 
     const workspaceIds = workspaces.map(w => w._id)
 
     // Get user's notes from all accessible workspaces
-    const notes = await Note.find({
+    const notesRaw = await Note.find({
       workspace: { $in: workspaceIds },
       isArchived: false
     })
@@ -102,6 +100,27 @@ export default async function Dashboard() {
     .sort({ lastEditedAt: -1 })
     .limit(20)
     .lean()
+
+    // Convert to plain objects for client components
+    const notes: DashboardNote[] = notesRaw.map((note: Record<string, any>) => ({
+      _id: note._id.toString(),
+      title: note.title || '',
+      content: note.content || '',
+      lastEditedAt: new Date(note.lastEditedAt),
+      createdAt: new Date(note.createdAt),
+      wordCount: note.wordCount || 0,
+      readingTime: note.readingTime || 0,
+      isArchived: note.isArchived || false,
+      workspace: note.workspace ? {
+        _id: (note.workspace as Record<string, any>)._id.toString(),
+        name: (note.workspace as Record<string, any>).name
+      } : undefined,
+      tags: note.tags ? (note.tags as Record<string, any>[]).map((tag: Record<string, any>) => ({
+        _id: tag._id.toString(),
+        name: tag.name,
+        color: tag.color
+      })) : []
+    }))
 
     // Get recent notes (last 7 days)
     const sevenDaysAgo = new Date()
@@ -203,7 +222,7 @@ export default async function Dashboard() {
               </div>
             </div>
 
-            <DashboardDocuments initialNotes={notes as any} />
+            <DashboardDocuments initialNotes={notes} />
 
             {notes.length > 0 && (
               <div className="px-6 py-4 bg-gray-50 border-t border-gray-200">
@@ -280,12 +299,12 @@ export default async function Dashboard() {
           <div className="bg-red-50 border border-red-200 rounded-lg p-6">
             <h1 className="text-2xl font-bold text-red-600 mb-2">Dashboard Error</h1>
             <p className="text-red-700 mb-4">There was an error loading your dashboard. Please try refreshing the page.</p>
-            <button
-              onClick={() => window.location.reload()}
-              className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+            <Link
+              href="/dashboard"
+              className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors inline-block"
             >
               Refresh Page
-            </button>
+            </Link>
             <details className="mt-4 text-left">
               <summary className="cursor-pointer text-red-600 font-medium">Error Details</summary>
               <pre className="mt-2 text-sm text-red-600 bg-red-100 p-2 rounded overflow-auto">

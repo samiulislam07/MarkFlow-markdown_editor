@@ -36,7 +36,7 @@ export default function DeleteButton({ noteId, noteTitle, onDelete }: DeleteButt
   if (showConfirm) {
     return (
       <div className="flex items-center space-x-2">
-        <span className="text-sm text-red-600">Delete "{noteTitle.length > 20 ? noteTitle.substring(0, 20) + '...' : noteTitle}"?</span>
+        <span className="text-sm text-red-600">Delete &quot;{noteTitle.length > 20 ? noteTitle.substring(0, 20) + '...' : noteTitle}&quot;?</span>
         <button
           onClick={handleDelete}
           disabled={isDeleting}

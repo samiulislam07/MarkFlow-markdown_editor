@@ -1,0 +1,111 @@
+\documentclass{article}
+
+% Required packages for advanced math and graphics
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\usepackage[english]{babel}
+
+% Document Information
+\title{Comprehensive LaTeX Feature Test}
+\author{MarkFlow Test Suite}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\section{Introduction}
+This document serves as a test case to verify the LaTeX compilation capabilities of the MarkFlow editor. It includes a variety of common mathematical notations, environments, and text formatting options.
+
+\section{Text Formatting}
+Here are some basic text formatting examples:
+\begin{itemize}
+    \item This is standard text.
+    \item \textbf{This text is bold.}
+    \item \textit{This text is italic.}
+    \item \texttt{This text is in a monospaced font.}
+\end{itemize}
+
+\section{Mathematical Notations}
+
+\subsection{Inline Mathematics}
+Inline math is used for expressions within a line of text, such as the famous mass-energy equivalence equation, $E = mc^2$. We can also include Greek letters like $\alpha, \beta, \gamma$ and symbols like $\hbar$.
+
+\subsection{Display Mathematics (Unnumbered)}
+Display math centers the equation on its own line.
+\[
+\int_{-\infty}^{\infty} e^{-x^2} \,dx = \sqrt{\pi}
+\]
+
+\subsection{Display Mathematics (Numbered)}
+For equations that need to be referenced, we use the `equation` environment.
+\begin{equation}
+    \sin^2(\theta) + \cos^2(\theta) = 1
+\end{equation}
+
+\section{Advanced Mathematical Structures}
+
+\subsection{Fractions and Roots}
+Here is an example of a fraction and a square root:
+\[
+f(x) = \frac{x^2 - 1}{\sqrt{x+1}}
+\]
+
+\subsection{Matrices and Vectors}
+Matrices can be created using the `pmatrix` environment from the `amsmath` package.
+\[
+\mathbf{A} = \begin{pmatrix}
+a & b \\
+c & d
+\end{pmatrix}
+\quad
+\mathbf{v} = \begin{pmatrix}
+x \\
+y
+\end{pmatrix}
+\]
+
+\subsection{Aligned Equations}
+The `align` environment is perfect for aligning multiple equations, such as Maxwell's Equations.
+\begin{align}
+\nabla \cdot \mathbf{E} &= \frac{\rho}{\varepsilon_0} \label{eq:gauss_law} \\
+\nabla \cdot \mathbf{B} &= 0 \\
+\nabla \times \mathbf{E} &= -\frac{\partial \mathbf{B}}{\partial t} \\
+\nabla \times \mathbf{B} &= \mu_0 \left( \mathbf{J} + \varepsilon_0 \frac{\partial \mathbf{E}}{\partial t} \right)
+\end{align}
+We can reference Gauss's Law using its label: Eq. \ref{eq:gauss_law}.
+
+\subsection{The Schrödinger Equation}
+A fundamental equation in quantum mechanics:
+\begin{equation}
+i\hbar\frac{\partial}{\partial t}\Psi(\mathbf{r},t) = \hat{H}\Psi(\mathbf{r},t)
+\end{equation}
+
+\section{Lists and Tables}
+\subsection{Enumerated List}
+\begin{enumerate}
+    \item First item: The limit is $\lim_{x \to 0} \frac{\sin(x)}{x} = 1$.
+    \item Second item: The sum is $\sum_{n=1}^{\infty} \frac{1}{n^2} = \frac{\pi^2}{6}$.
+    \item Third item.
+\end{enumerate}
+
+\subsection{Table}
+A simple table structure.
+\begin{center}
+\begin{tabular}{|l|c|r|}
+\hline
+\textbf{Name} & \textbf{Symbol} & \textbf{Value} \\
+\hline
+Pi & $\pi$ & 3.14159 \\
+Euler's Number & $e$ & 2.71828 \\
+Golden Ratio & $\phi$ & 1.61803 \\
+\hline
+\end{tabular}
+\end{center}
+
+\section{Conclusion}
+If this document renders correctly, the LaTeX compiler is functioning as expected and supports a wide range of essential features.
+
+\end{document}
