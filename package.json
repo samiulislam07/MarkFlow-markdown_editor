@@ -20,6 +20,7 @@
     "@phosphor-icons/react": "^2.1.10",
     "@types/nodemailer": "^6.4.17",
     "better-react-mathjax": "^2.3.0",
+    "codemirror": "^6.0.2",
     "framer-motion": "^12.18.1",
     "katex": "^0.16.22",
     "lucide-react": "^0.512.0",
