@@ -16,20 +16,17 @@ export const noteSchema = new Schema(
     workspace: { 
       type: Schema.Types.ObjectId, 
       ref: 'Workspace', 
-      required: true,
-      index: true 
+      required: true
     },
     folder: { 
       type: Schema.Types.ObjectId, 
       ref: 'Folder',
-      default: null,
-      index: true 
+      default: null
     },
     author: { 
       type: Schema.Types.ObjectId, 
       ref: 'User', 
-      required: true,
-      index: true 
+      required: true
     },
     tags: [{ 
       type: Schema.Types.ObjectId, 
@@ -106,11 +103,10 @@ export const noteSchema = new Schema(
   }
 );
 
-// Indexes for better performance
+// Additional indexes for better performance
 noteSchema.index({ workspace: 1 });
 noteSchema.index({ folder: 1 });
 noteSchema.index({ author: 1 });
-noteSchema.index({ lastEditedBy: 1 });
 noteSchema.index({ createdAt: -1 });
 noteSchema.index({ updatedAt: -1 });
 noteSchema.index({ isArchived: 1 });

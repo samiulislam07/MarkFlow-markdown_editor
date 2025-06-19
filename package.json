@@ -12,17 +12,19 @@
   },
   "dependencies": {
     "@clerk/nextjs": "^6.20.2",
-    "mongoose": "^8.15.1",
+    "@types/nodemailer": "^6.4.17",
     "better-react-mathjax": "^2.3.0",
     "katex": "^0.16.22",
     "lucide-react": "^0.512.0",
     "mongodb": "^6.17.0",
+    "mongoose": "^8.15.1",
     "next": "15.3.3",
+    "nodemailer": "^7.0.3",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "svix": "^1.66.0",
-    "react-dom": "^19.0.0",
-    "react-katex": "^3.1.0"
+    "react-katex": "^3.1.0",
+    "resend": "^4.6.0",
+    "svix": "^1.66.0"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",

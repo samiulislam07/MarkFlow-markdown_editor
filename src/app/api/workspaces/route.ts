@@ -3,6 +3,8 @@ import { auth } from '@clerk/nextjs/server';
 import { connectToDatabase } from '@/lib/mongodb/connect';
 import Workspace from '@/lib/mongodb/models/Workspace';
 import User from '@/lib/mongodb/models/User';
+import { sendInvitationEmail } from '@/lib/services/emailService';
+import crypto from 'crypto';
 
 // GET - Fetch user's workspaces
 export async function GET(request: NextRequest) {
@@ -58,7 +60,7 @@ export async function POST(request: NextRequest) {
     await connectToDatabase();
 
     const body = await request.json();
-    const { name, description, isPersonal, settings } = body;
+    const { name, description, isPersonal, settings, collaboratorEmails } = body;
 
     if (!name) {
       return NextResponse.json({ error: 'Workspace name is required' }, { status: 400 });
@@ -69,10 +71,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
+    // Process collaborator emails if provided - send invitations instead of adding directly
+    const invitationResults = [];
+    if (collaboratorEmails && Array.isArray(collaboratorEmails) && !isPersonal) {
+      // We'll send invitations after workspace is created
+    }
+
     const workspace = new Workspace({
       name,
       description: description || '',
       owner: user._id,
+      collaborators: [], // Start with empty collaborators, will be added via invitations
       isPersonal: isPersonal || false,
       settings: {
         theme: settings?.theme || 'auto',
@@ -82,12 +91,70 @@ export async function POST(request: NextRequest) {
 
     await workspace.save();
 
+    // Send invitations to collaborators after workspace is created
+    if (collaboratorEmails && Array.isArray(collaboratorEmails) && !isPersonal) {
+      for (const collaboratorData of collaboratorEmails) {
+        const { email, role } = collaboratorData;
+        
+        // Skip if user is trying to invite themselves
+        if (email.toLowerCase() === user.email.toLowerCase()) {
+          continue;
+        }
+
+        // Generate invitation token
+        const token = crypto.randomBytes(32).toString('hex');
+        const expiresAt = new Date();
+        expiresAt.setDate(expiresAt.getDate() + 7); // 7 days expiry
+
+        // Check if user exists
+        const invitedUser = await User.findOne({ email: email.toLowerCase() });
+        const hasAccount = !!invitedUser;
+
+        // Add invitation to workspace
+        workspace.invitations.push({
+          email: email.toLowerCase(),
+          role: role || 'viewer',
+          invitedBy: user._id,
+          invitedAt: new Date(),
+          status: 'pending',
+          token,
+          expiresAt
+        });
+
+        // Send invitation email
+        const emailResult = await sendInvitationEmail({
+          to: email.toLowerCase(),
+          inviterName: user.name,
+          inviterEmail: user.email,
+          workspaceName: workspace.name,
+          workspaceDescription: workspace.description,
+          role: role || 'viewer',
+          invitationToken: token,
+          expiresAt,
+          hasAccount
+        });
+
+        invitationResults.push({
+          email,
+          role: role || 'viewer',
+          emailSent: emailResult.success,
+          error: emailResult.error
+        });
+      }
+
+      // Save workspace with invitations
+      await workspace.save();
+    }
+
     await workspace.populate([
       { path: 'owner', select: 'name email avatar' },
       { path: 'collaborators.user', select: 'name email avatar' }
     ]);
 
-    return NextResponse.json(workspace, { status: 201 });
+    return NextResponse.json({
+      ...workspace.toObject(),
+      invitationResults
+    }, { status: 201 });
 
   } catch (error) {
     console.error('Error creating workspace:', error);

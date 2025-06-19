@@ -5,8 +5,7 @@ export const userSchema = new Schema(
     clerkId: { 
       type: String, 
       required: true, 
-      unique: true,
-      index: true 
+      unique: true
     },
     email: { 
       type: String, 
@@ -96,7 +95,7 @@ export const userSchema = new Schema(
   }
 );
 
-// Indexes for better performance
+// Additional indexes for better performance 
 userSchema.index({ clerkId: 1 });
 userSchema.index({ email: 1 });
 userSchema.index({ username: 1 });

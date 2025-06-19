@@ -13,12 +13,14 @@ interface EnhancedMarkdownEditorProps {
   documentId?: string;
   initialTitle?: string;
   initialContent?: string;
+  workspaceId?: string;
 }
 
 const EnhancedMarkdownEditor: React.FC<EnhancedMarkdownEditorProps> = ({
   documentId,
   initialTitle = '',
-  initialContent = ''
+  initialContent = '',
+  workspaceId
 }) => {
   const { user } = useUser();
   const router = useRouter();
@@ -67,7 +69,7 @@ const EnhancedMarkdownEditor: React.FC<EnhancedMarkdownEditorProps> = ({
       const payload = {
         title: title.trim() || 'Untitled Document',
         content: markdown,
-        workspaceId: null, // We'll need to create a default workspace
+        workspaceId: workspaceId || null, // Use provided workspace or default
       };
 
       let response;
