@@ -27,12 +27,47 @@ export const workspaceSchema = new Schema(
       },
       role: { 
         type: String, 
-        enum: ['editor', 'viewer'], 
+        enum: ['editor', 'commenter', 'viewer'], 
         default: 'viewer' 
       },
       joinedAt: { 
         type: Date, 
         default: Date.now 
+      }
+    }],
+    invitations: [{
+      email: { 
+        type: String, 
+        required: true,
+        lowercase: true,
+        trim: true 
+      },
+      role: { 
+        type: String, 
+        enum: ['editor', 'commenter', 'viewer'], 
+        default: 'viewer' 
+      },
+      invitedBy: { 
+        type: Schema.Types.ObjectId, 
+        ref: 'User', 
+        required: true 
+      },
+      invitedAt: { 
+        type: Date, 
+        default: Date.now 
+      },
+      status: { 
+        type: String, 
+        enum: ['pending', 'accepted', 'declined', 'expired'], 
+        default: 'pending' 
+      },
+      token: { 
+        type: String, 
+        required: true
+      },
+      expiresAt: { 
+        type: Date, 
+        required: true 
       }
     }],
     isPersonal: { 
@@ -62,8 +97,7 @@ export const workspaceSchema = new Schema(
   }
 );
 
-// Indexes for better performance
-// Using schema.index() method only, not duplicating with field-level index: true
+// Additional indexes for better performance
 workspaceSchema.index({ owner: 1 });
 workspaceSchema.index({ 'collaborators.user': 1 });
 workspaceSchema.index({ createdAt: -1 });

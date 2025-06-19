@@ -4,7 +4,11 @@ import { connectToDatabase } from '@/lib/mongodb/connect'
 import User from '@/lib/mongodb/models/User'
 import Note from '@/lib/mongodb/models/Note'
 import Workspace from '@/lib/mongodb/models/Workspace'
+<<<<<<< HEAD
 import { FileText, Plus, Clock, Search, Filter, Grid, List, Bookmark } from 'lucide-react'
+=======
+import { FileText, Plus, Clock, Search, Filter, Grid, List, Bookmark, Users, Settings, FolderOpen, UserIcon } from 'lucide-react'
+>>>>>>> 4a3ae4c5684ee2f3b2a4c4edb2f646edc0902d66
 import Link from 'next/link'
 import DashboardDocuments from '../components/DashboardDocuments'
 import ChatLauncher from '../components/ChatLauncher';
@@ -29,6 +33,35 @@ interface DashboardNote {
   }[]
 }
 
+interface DashboardWorkspace {
+  _id: string
+  name: string
+  description: string
+  isPersonal: boolean
+  owner: {
+    _id: string
+    name: string
+    email: string
+    avatar: string
+  }
+  collaborators: {
+    user: {
+      _id: string
+      name: string
+      email: string
+      avatar: string
+    }
+    role: string
+    joinedAt: Date
+  }[]
+  settings: {
+    theme: string
+    defaultView: string
+  }
+  createdAt: Date
+  updatedAt: Date
+}
+
 export default async function Dashboard() {
   try {
     const { userId } = await auth()
@@ -51,6 +84,7 @@ export default async function Dashboard() {
     // Connect to database and ensure connection is established
     await connectToDatabase()
     
+<<<<<<< HEAD
     // Make sure mongoose is connected before proceeding
     if (mongoose.connection.readyState !== 1) {
       // Wait for connection to be fully established
@@ -67,8 +101,13 @@ export default async function Dashboard() {
     }
     
     // Get or create user
+=======
+    // Get or create user - improved logic to handle existing users
+>>>>>>> 4a3ae4c5684ee2f3b2a4c4edb2f646edc0902d66
     let dbUser = await User.findOne({ clerkId: userId })
+    
     if (!dbUser) {
+<<<<<<< HEAD
       // Generate a unique username if not provided by Clerk
       let username = clerkUser.username || '';
       if (!username) {
@@ -104,27 +143,188 @@ export default async function Dashboard() {
         lastLogin: new Date(),
         createdAt: new Date(),
         updatedAt: new Date()
+=======
+      // Check if user exists with same email but different clerkId
+      const existingUserByEmail = await User.findOne({ 
+        email: clerkUser.emailAddresses[0]?.emailAddress 
+>>>>>>> 4a3ae4c5684ee2f3b2a4c4edb2f646edc0902d66
       })
+      
+      if (existingUserByEmail) {
+        // Update existing user with new clerkId instead of creating duplicate
+        console.log('🔄 Updating existing user with new Clerk ID:', userId)
+        const emailUserUpdate: any = {
+          clerkId: userId,
+          firstName: clerkUser.firstName || existingUserByEmail.firstName,
+          lastName: clerkUser.lastName || existingUserByEmail.lastName,
+          avatar: clerkUser.imageUrl || existingUserByEmail.avatar,
+          emailVerified: clerkUser.emailAddresses[0]?.verification?.status === 'verified' || existingUserByEmail.emailVerified,
+          lastLogin: new Date(),
+          updatedAt: new Date()
+        }
+        
+        // Only update username if Clerk has a valid username
+        if (clerkUser.username && clerkUser.username.trim()) {
+          emailUserUpdate.username = clerkUser.username.trim()
+        }
+        
+        dbUser = await User.findByIdAndUpdate(
+          existingUserByEmail._id,
+          emailUserUpdate,
+          { new: true }
+        )
+      } else {
+        // Create new user only if no existing user found
+        console.log('🆕 Creating new user in dashboard:', userId)
+        try {
+          const userData: any = {
+            clerkId: userId,
+            email: clerkUser.emailAddresses[0]?.emailAddress || '',
+            name: `${clerkUser.firstName || ''} ${clerkUser.lastName || ''}`.trim() || 'Unknown User',
+            firstName: clerkUser.firstName || '',
+            lastName: clerkUser.lastName || '',
+            avatar: clerkUser.imageUrl || '',
+            emailVerified: clerkUser.emailAddresses[0]?.verification?.status === 'verified' || false,
+            provider: 'email',
+            preferences: {
+              theme: 'dark',
+              language: 'en',
+              notifications: { email: true, push: true, mentions: true, comments: true }
+            },
+            subscription: { plan: 'free', status: 'active' },
+            isActive: true,
+            lastLogin: new Date(),
+          }
+          
+          // Only set username if it exists and is not empty
+          if (clerkUser.username && clerkUser.username.trim()) {
+            userData.username = clerkUser.username.trim()
+          }
+          
+          dbUser = await User.create(userData)
+        } catch (createError: any) {
+          // If creation fails due to duplicate key, try to find and update the user
+          if (createError.code === 11000) {
+            console.log('🔄 Duplicate key error, attempting to find and update user')
+            const updateData: any = {
+              clerkId: userId,
+              email: clerkUser.emailAddresses[0]?.emailAddress || '',
+              name: `${clerkUser.firstName || ''} ${clerkUser.lastName || ''}`.trim() || 'Unknown User',
+              firstName: clerkUser.firstName || '',
+              lastName: clerkUser.lastName || '',
+              avatar: clerkUser.imageUrl || '',
+              emailVerified: clerkUser.emailAddresses[0]?.verification?.status === 'verified' || false,
+              lastLogin: new Date(),
+              updatedAt: new Date()
+            }
+            
+            // Only set username if it exists and is not empty
+            if (clerkUser.username && clerkUser.username.trim()) {
+              updateData.username = clerkUser.username.trim()
+            }
+            
+            dbUser = await User.findOneAndUpdate(
+              { 
+                $or: [
+                  { clerkId: userId },
+                  { email: clerkUser.emailAddresses[0]?.emailAddress }
+                ]
+              },
+              updateData,
+              { new: true, upsert: true }
+            )
+          } else {
+            throw createError
+          }
+        }
+      }
     } else {
-      await User.findByIdAndUpdate(dbUser._id, { 
+      // Update existing user's last login
+      const existingUserUpdate: any = { 
         lastLogin: new Date(),
-        updatedAt: new Date()
+        updatedAt: new Date(),
+        // Also update profile info in case it changed in Clerk
+        firstName: clerkUser.firstName || dbUser.firstName,
+        lastName: clerkUser.lastName || dbUser.lastName,
+        avatar: clerkUser.imageUrl || dbUser.avatar,
+        emailVerified: clerkUser.emailAddresses[0]?.verification?.status === 'verified' || dbUser.emailVerified,
+      }
+      
+      // Only update username if Clerk has a valid username
+      if (clerkUser.username && clerkUser.username.trim()) {
+        existingUserUpdate.username = clerkUser.username.trim()
+      }
+      
+      await User.findByIdAndUpdate(dbUser._id, existingUserUpdate)
+    }
+
+    // Ensure user has a default personal workspace
+    let personalWorkspace = await Workspace.findOne({ 
+      owner: dbUser._id, 
+      isPersonal: true,
+      isArchived: false 
+    })
+
+    if (!personalWorkspace) {
+      console.log('📁 Creating default personal workspace for user:', dbUser._id)
+      personalWorkspace = await Workspace.create({
+        name: `${clerkUser.firstName || 'My'} Personal Workspace`,
+        description: 'Your personal workspace for private documents and collaboration',
+        owner: dbUser._id,
+        collaborators: [],
+        isPersonal: true,
+        isArchived: false,
+        settings: {
+          theme: 'auto',
+          defaultView: 'split'
+        }
       })
     }
 
-    // Get user's workspaces
-    const workspaces = await Workspace.find({
+    // Get user's workspaces with detailed information
+    const workspacesRaw = await Workspace.find({
       $or: [
         { owner: dbUser._id },
         { 'collaborators.user': dbUser._id }
       ],
       isArchived: false
-    }).select('_id name')
+    })
+    .populate('owner', 'name email avatar')
+    .populate('collaborators.user', 'name email avatar')
+    .sort({ updatedAt: -1 })
+    .lean()
+
+    // Convert to plain objects for client components
+    const workspaces: DashboardWorkspace[] = workspacesRaw.map((workspace: Record<string, any>) => ({
+      _id: workspace._id.toString(),
+      name: workspace.name,
+      description: workspace.description || '',
+      isPersonal: workspace.isPersonal,
+      owner: {
+        _id: (workspace.owner as Record<string, any>)._id.toString(),
+        name: (workspace.owner as Record<string, any>).name,
+        email: (workspace.owner as Record<string, any>).email,
+        avatar: (workspace.owner as Record<string, any>).avatar
+      },
+      collaborators: (workspace.collaborators as Record<string, any>[]).map((collab: Record<string, any>) => ({
+        user: {
+          _id: (collab.user as Record<string, any>)._id.toString(),
+          name: (collab.user as Record<string, any>).name,
+          email: (collab.user as Record<string, any>).email,
+          avatar: (collab.user as Record<string, any>).avatar
+        },
+        role: collab.role,
+        joinedAt: new Date(collab.joinedAt)
+      })),
+      settings: workspace.settings,
+      createdAt: new Date(workspace.createdAt),
+      updatedAt: new Date(workspace.updatedAt)
+    }))
 
     const workspaceIds = workspaces.map(w => w._id)
 
     // Get user's notes from all accessible workspaces
-    const notes = await Note.find({
+    const notesRaw = await Note.find({
       workspace: { $in: workspaceIds },
       isArchived: false
     })
@@ -132,6 +332,27 @@ export default async function Dashboard() {
     .sort({ lastEditedAt: -1 })
     .limit(20)
     .lean()
+
+    // Convert to plain objects for client components
+    const notes: DashboardNote[] = notesRaw.map((note: Record<string, any>) => ({
+      _id: note._id.toString(),
+      title: note.title || '',
+      content: note.content || '',
+      lastEditedAt: new Date(note.lastEditedAt),
+      createdAt: new Date(note.createdAt),
+      wordCount: note.wordCount || 0,
+      readingTime: note.readingTime || 0,
+      isArchived: note.isArchived || false,
+      workspace: note.workspace ? {
+        _id: (note.workspace as Record<string, any>)._id.toString(),
+        name: (note.workspace as Record<string, any>).name
+      } : undefined,
+      tags: note.tags ? (note.tags as Record<string, any>[]).map((tag: Record<string, any>) => ({
+        _id: tag._id.toString(),
+        name: tag.name,
+        color: tag.color
+      })) : []
+    }))
 
     // Get recent notes (last 7 days)
     const sevenDaysAgo = new Date()
@@ -154,11 +375,11 @@ export default async function Dashboard() {
               </div>
               <div className="flex items-center space-x-4">
                 <Link
-                  href="/editor"
+                  href={workspaces.length > 0 ? `/workspace/${workspaces[0]._id}` : "/workspaces/new"}
                   className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                 >
                   <Plus className="w-5 h-5 mr-2" />
-                  New Document
+                  {workspaces.length > 0 ? "New Document" : "Create Workspace"}
                 </Link>
               </div>
             </div>
@@ -209,6 +430,117 @@ export default async function Dashboard() {
             </div>
           </div>
 
+          {/* Workspaces Section */}
+          <div className="bg-white rounded-lg shadow mb-8">
+            <div className="px-6 py-4 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-medium text-gray-900">My Workspaces</h2>
+                <Link
+                  href="/workspaces/new"
+                  className="inline-flex items-center px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  <Plus className="w-4 h-4 mr-1" />
+                  New Workspace
+                </Link>
+              </div>
+            </div>
+
+            <div className="p-6">
+              {workspaces.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {workspaces.map((workspace) => (
+                    <Link
+                      key={workspace._id}
+                      href={`/workspace/${workspace._id}`}
+                      className="block bg-gray-50 rounded-lg p-4 hover:bg-gray-100 transition-colors border border-gray-200"
+                    >
+                      <div className="flex items-start justify-between mb-3">
+                        <div className="flex items-center">
+                          {workspace.isPersonal ? (
+                            <UserIcon className="w-5 h-5 text-blue-600 mr-2" />
+                          ) : (
+                            <Users className="w-5 h-5 text-green-600 mr-2" />
+                          )}
+                          <h3 className="font-medium text-gray-900 truncate">{workspace.name}</h3>
+                        </div>
+                        {workspace.isPersonal && (
+                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                            Personal
+                          </span>
+                        )}
+                      </div>
+                      
+                      {workspace.description && (
+                        <p className="text-sm text-gray-600 mb-3 line-clamp-2">{workspace.description}</p>
+                      )}
+                      
+                      <div className="flex items-center justify-between text-xs text-gray-500">
+                        <div className="flex items-center">
+                          <span>{workspace.collaborators.length + 1} member{workspace.collaborators.length !== 0 ? 's' : ''}</span>
+                        </div>
+                        <div className="flex items-center">
+                          <Clock className="w-3 h-3 mr-1" />
+                          <span>
+                            {new Date(workspace.updatedAt).toLocaleDateString()}
+                          </span>
+                        </div>
+                      </div>
+                      
+                      {workspace.collaborators.length > 0 && (
+                        <div className="flex items-center mt-3 pt-3 border-t border-gray-200">
+                          <div className="flex -space-x-2 overflow-hidden">
+                            {workspace.collaborators.slice(0, 3).map((collab, index) => (
+                              <div
+                                key={collab.user._id}
+                                className="inline-block h-6 w-6 rounded-full ring-2 ring-white"
+                                title={`${collab.user.name} (${collab.role})`}
+                              >
+                                {collab.user.avatar ? (
+                                  <img
+                                    className="h-6 w-6 rounded-full"
+                                    src={collab.user.avatar}
+                                    alt={collab.user.name}
+                                  />
+                                ) : (
+                                  <div className="h-6 w-6 rounded-full bg-gray-300 flex items-center justify-center">
+                                    <span className="text-xs font-medium text-gray-600">
+                                      {collab.user.name.charAt(0).toUpperCase()}
+                                    </span>
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                            {workspace.collaborators.length > 3 && (
+                              <div className="inline-block h-6 w-6 rounded-full ring-2 ring-white bg-gray-200 flex items-center justify-center">
+                                <span className="text-xs font-medium text-gray-600">
+                                  +{workspace.collaborators.length - 3}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                          <span className="ml-2 text-xs text-gray-500">collaborating</span>
+                        </div>
+                      )}
+                    </Link>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8">
+                  <FolderOpen className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                  <h3 className="text-lg font-medium text-gray-900 mb-2">No workspaces yet</h3>
+                  <p className="text-gray-600 mb-4">Create your first workspace to start collaborating on documents.</p>
+                  <Link
+                    href="/workspaces/new"
+                    className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                  >
+                    <Plus className="w-4 h-4 mr-2" />
+                    Create Workspace
+                  </Link>
+                </div>
+              )}
+            </div>
+          </div>
+
           {/* Documents Section */}
           <div className="bg-white rounded-lg shadow">
             <div className="px-6 py-4 border-b border-gray-200">
@@ -233,7 +565,7 @@ export default async function Dashboard() {
               </div>
             </div>
 
-            <DashboardDocuments initialNotes={notes as any} />
+            <DashboardDocuments initialNotes={notes} />
 
             {notes.length > 0 && (
               <div className="px-6 py-4 bg-gray-50 border-t border-gray-200">
@@ -255,7 +587,7 @@ export default async function Dashboard() {
           {/* Quick Actions */}
           <div className="mt-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             <Link
-              href="/editor"
+              href="/workspaces/new"
               className="bg-white rounded-lg shadow p-6 hover:shadow-md transition-shadow group"
             >
               <div className="flex items-center">
@@ -263,8 +595,8 @@ export default async function Dashboard() {
                   <Plus className="w-6 h-6 text-blue-600" />
                 </div>
                 <div className="ml-4">
-                  <h3 className="text-lg font-medium text-gray-900">New Document</h3>
-                  <p className="text-sm text-gray-500">Start writing a new document</p>
+                  <h3 className="text-lg font-medium text-gray-900">Create Workspace</h3>
+                  <p className="text-sm text-gray-500">Start a new collaborative project</p>
                 </div>
               </div>
             </Link>
@@ -278,8 +610,8 @@ export default async function Dashboard() {
                   <Grid className="w-6 h-6 text-green-600" />
                 </div>
                 <div className="ml-4">
-                  <h3 className="text-lg font-medium text-gray-900">Browse Workspaces</h3>
-                  <p className="text-sm text-gray-500">Manage your team workspaces</p>
+                  <h3 className="text-lg font-medium text-gray-900">Manage Workspaces</h3>
+                  <p className="text-sm text-gray-500">View and organize your workspaces</p>
                 </div>
               </div>
             </Link>
@@ -290,7 +622,7 @@ export default async function Dashboard() {
             >
               <div className="flex items-center">
                 <div className="bg-purple-100 rounded-lg p-3 group-hover:bg-purple-200 transition-colors">
-                  <FileText className="w-6 h-6 text-purple-600" />
+                  <Settings className="w-6 h-6 text-purple-600" />
                 </div>
                 <div className="ml-4">
                   <h3 className="text-lg font-medium text-gray-900">Account Settings</h3>
@@ -314,7 +646,11 @@ export default async function Dashboard() {
             <p className="text-red-700 mb-4">There was an error loading your dashboard. Please try refreshing the page.</p>
             <Link
               href="/dashboard"
+<<<<<<< HEAD
               className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+=======
+              className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors inline-block"
+>>>>>>> 4a3ae4c5684ee2f3b2a4c4edb2f646edc0902d66
             >
               Refresh Page
             </Link>

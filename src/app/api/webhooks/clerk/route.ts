@@ -45,19 +45,95 @@ export async function POST(request: NextRequest) {
 
     switch (eventType) {
       case 'user.created':
-        console.log('🆕 Creating new user:', id)
-        await User.create({
-          clerkId: id,
-          email: email_addresses[0]?.email_address,
-          firstName: first_name,
-          lastName: last_name,
-          username: username,
-          avatar: image_url,
-          provider: provider,
-          emailVerified: email_addresses[0]?.verification?.status === 'verified',
-          lastSignIn: new Date(),
-        })
-        console.log('✅ User created successfully')
+        console.log('🆕 Creating new user via webhook:', id)
+        try {
+          // Check if user already exists with either clerkId or email
+          const existingUser = await User.findOne({
+            $or: [
+              { clerkId: id },
+              { email: email_addresses[0]?.email_address }
+            ]
+          })
+
+          if (existingUser) {
+            // Update existing user instead of creating duplicate
+            console.log('🔄 User already exists, updating with webhook data:', id)
+                         const existingWebhookUpdate: any = {
+               clerkId: id,
+               email: email_addresses[0]?.email_address,
+               firstName: first_name || existingUser.firstName,
+               lastName: last_name || existingUser.lastName,
+               avatar: image_url || existingUser.avatar,
+               provider: provider,
+               emailVerified: email_addresses[0]?.verification?.status === 'verified',
+               lastSignIn: new Date(),
+               updatedAt: new Date(),
+             }
+             
+             // Only update username if it exists and is not empty
+             if (username && username.trim()) {
+               existingWebhookUpdate.username = username.trim()
+             }
+             
+             await User.findByIdAndUpdate(existingUser._id, existingWebhookUpdate)
+          } else {
+            // Create new user
+            const newWebhookUser: any = {
+              clerkId: id,
+              email: email_addresses[0]?.email_address,
+              name: `${first_name || ''} ${last_name || ''}`.trim() || 'Unknown User',
+              firstName: first_name,
+              lastName: last_name,
+              avatar: image_url,
+              provider: provider,
+              emailVerified: email_addresses[0]?.verification?.status === 'verified',
+              lastSignIn: new Date(),
+            }
+            
+            // Only set username if it exists and is not empty
+            if (username && username.trim()) {
+              newWebhookUser.username = username.trim()
+            }
+            
+            await User.create(newWebhookUser)
+          }
+          console.log('✅ User processed successfully')
+        } catch (createError: any) {
+          // Handle duplicate key errors gracefully
+          if (createError.code === 11000) {
+            console.log('🔄 Duplicate key in webhook, attempting upsert:', id)
+                         const fallbackWebhookUpdate: any = {
+               clerkId: id,
+               email: email_addresses[0]?.email_address,
+               name: `${first_name || ''} ${last_name || ''}`.trim() || 'Unknown User',
+               firstName: first_name,
+               lastName: last_name,
+               avatar: image_url,
+               provider: provider,
+               emailVerified: email_addresses[0]?.verification?.status === 'verified',
+               lastSignIn: new Date(),
+               updatedAt: new Date(),
+             }
+             
+             // Only set username if it exists and is not empty
+             if (username && username.trim()) {
+               fallbackWebhookUpdate.username = username.trim()
+             }
+             
+             await User.findOneAndUpdate(
+               { 
+                 $or: [
+                   { clerkId: id },
+                   { email: email_addresses[0]?.email_address }
+                 ]
+               },
+               fallbackWebhookUpdate,
+               { new: true, upsert: true }
+             )
+          } else {
+            throw createError
+          }
+        }
         break
 
       case 'user.updated':

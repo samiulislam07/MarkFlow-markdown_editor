@@ -22,6 +22,7 @@ interface MarkdownEditorProps {
   documentId?: string;
   initialTitle?: string;
   initialContent?: string;
+  workspaceId?: string;
   onContentChange?: (content: string) => void;
 }
 
@@ -29,6 +30,7 @@ const MergedMarkdownEditor: React.FC<MarkdownEditorProps> = ({
   documentId,
   initialTitle = '',
   initialContent = '',
+  workspaceId,
   onContentChange
 }) => {
   const { user } = useUser();
@@ -115,7 +117,7 @@ Happy writing! 🚀
       const payload = {
         title: title || 'Untitled Document',
         content: markdownContent,
-        workspaceId: null,
+        workspaceId: workspaceId || null,
       };
 
       let response;
@@ -386,6 +388,20 @@ Happy writing! 🚀
     </button>
   );
 
+  const exportMarkdown = () => {
+    const blob = new Blob([markdownContent], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const copyToClipboard = () => {
+    navigator.clipboard.writeText(markdownContent);
+  };
+
   return (
     <MathJaxContext config={mathJaxConfig}>
       <div className={`markflow-editor flex flex-col h-screen ${
@@ -595,15 +611,11 @@ Happy writing! 🚀
         </div>
 
         {/* Status Bar */}
-        <div className={`flex justify-between items-center p-2 text-xs ${
-          darkMode 
-            ? 'bg-gray-800 border-gray-700 text-gray-400' 
-            : 'bg-gray-100 border-gray-200 text-gray-500'
-        } border-t`}>
-          <span>
-            Lines: {markdownContent.split('\n').length} | Words: {markdownContent.split(/\s+/).filter(word => word.length > 0).length} | Chars: {markdownContent.length}
-          </span>
-          <span>LaTeX supported • Auto-save enabled • Powered by CodeMirror & MathJax</span>
+        <div className="bg-gray-100 border-t border-gray-200 px-4 py-2 text-xs text-gray-500">
+          <div className="flex justify-between items-center">
+            <span>Lines: {markdownContent.split('\n').length} | Characters: {markdownContent.length} | Words: {markdownContent.split(/\s+/).filter(word => word.length > 0).length}</span>
+            <span>LaTeX supported • Auto-save enabled</span>
+          </div>
         </div>
       </div>
       <style jsx global>{`

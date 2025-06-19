@@ -10,7 +10,7 @@ export const noteSchema = new Schema(
     },
     content: { 
       type: String, 
-      required: true,
+      required: false,
       default: '' 
     },
     workspace: { 
@@ -103,12 +103,15 @@ export const noteSchema = new Schema(
   }
 );
 
+<<<<<<< HEAD
 // Indexes for better performance
 // Using schema.index() method only, not duplicating with field-level index: true
+=======
+// Additional indexes for better performance
+>>>>>>> 4a3ae4c5684ee2f3b2a4c4edb2f646edc0902d66
 noteSchema.index({ workspace: 1 });
 noteSchema.index({ folder: 1 });
 noteSchema.index({ author: 1 });
-noteSchema.index({ lastEditedBy: 1 });
 noteSchema.index({ createdAt: -1 });
 noteSchema.index({ updatedAt: -1 });
 noteSchema.index({ isArchived: 1 });
@@ -137,11 +140,12 @@ noteSchema.pre('save', function(next) {
   
   if (this.isModified('content')) {
     // Calculate word count
-    const words = this.content.split(/\s+/).filter(word => word.length > 0);
+    const content = this.content || '';
+    const words = content.split(/\s+/).filter(word => word.length > 0);
     this.wordCount = words.length;
     
     // Calculate reading time (assuming 200 words per minute)
-    this.readingTime = Math.ceil(this.wordCount / 200);
+    this.readingTime = Math.ceil(this.wordCount / 200) || 0;
     
     // Update lastEditedAt
     this.lastEditedAt = new Date();
