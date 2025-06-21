@@ -2,6 +2,9 @@
 
 import React, { useState, useEffect } from 'react'
 import ChatBox from './ChatBox'
+import { useUser } from "@clerk/nextjs";
+import {getWorkspaceChatlist} from '@/lib/services/chatService'
+import { get } from 'http'
 
 interface Channel {
   id: string
@@ -12,11 +15,15 @@ export default function ChatSidebar({ open, onClose }: { open: boolean; onClose:
   const [channels, setChannels] = useState<Channel[]>([])
   const [selected, setSelected] = useState<string | null>(null)
 
+  const { user } = useUser();
+  const userId = user?.id;
+
   useEffect(() => {
+  if (!user) return;
   const fetchChannels = async () => {
     try {
-      const res = await fetch('/api/workspaces')
-      const data = await res.json()
+      const data = await getWorkspaceChatlist(userId? userId : 'defaultUserId')
+      console.log('Fetched channels:', data)
 
       // ⚠️ Optional: handle unauthorized or server error
       if (!Array.isArray(data)) return
@@ -35,13 +42,17 @@ export default function ChatSidebar({ open, onClose }: { open: boolean; onClose:
   }
 
   fetchChannels()
-}, [])
+}, [user])
 
   const selectedChannel = channels.find(c => c.id === selected)
 
+  useEffect(() => {
+  console.log('Selected channel:', selectedChannel)
+}, [selectedChannel])
+
   return (
     <div
-      className={`fixed top-0 right-0 h-full w-80 bg-white shadow-2xl z-50 transform transition-transform duration-300 ease-in-out
+      className={`fixed top-0 right-0 h-full w-96 bg-white shadow-2xl z-50 transform transition-transform duration-300 ease-in-out
         ${open ? 'translate-x-0' : 'translate-x-full'} flex flex-col`}
     >
       <div className="flex items-center justify-between px-4 py-3 border-b">
@@ -63,7 +74,6 @@ export default function ChatSidebar({ open, onClose }: { open: boolean; onClose:
             </button>
           ))}
         </div>
-
         <div className="flex-1 overflow-y-auto">
           {selectedChannel && <ChatBox channel={selectedChannel} />}
         </div>

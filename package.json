@@ -20,6 +20,7 @@
     "@phosphor-icons/react": "^2.1.10",
     "@types/nodemailer": "^6.4.17",
     "better-react-mathjax": "^2.3.0",
+    "formidable": "^3.5.4",
     "framer-motion": "^12.18.1",
     "katex": "^0.16.22",
     "lucide-react": "^0.512.0",
@@ -37,6 +38,7 @@
   "devDependencies": {
     "@eslint/eslintrc": "^3",
     "@tailwindcss/postcss": "^4",
+    "@types/formidable": "^3.4.5",
     "@types/katex": "^0.16.7",
     "@types/node": "^20",
     "@types/react": "^19",
