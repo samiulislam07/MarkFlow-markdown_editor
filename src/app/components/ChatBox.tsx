@@ -27,7 +27,7 @@ export default function ChatBox({ channel }: { channel: { id: string; name: stri
 
   fetchMessages(); // initial load
 
-  interval = setInterval(fetchMessages, 500000); // poll every 50 seconds
+  interval = setInterval(fetchMessages, 500); // poll every 50 seconds
 
   return () => clearInterval(interval); // cleanup on unmount
   }, [channel.id]);
@@ -117,13 +117,15 @@ export default function ChatBox({ channel }: { channel: { id: string; name: stri
                   {msg.fileName || 'Download File'} {/* ✅ fallback to 'Download File' */}
                 </a>
               )}
-              <span
-                className={`inline-block px-4 py-2 rounded-2xl max-w-xs break-words ${
-                  isYou ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-900'
-                }`}
-              >
-                {msg.text}
-              </span>
+              {msg.text?.trim() && (
+                <span
+                  className={`inline-block px-4 py-2 rounded-2xl max-w-xs break-words ${
+                    isYou ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-900'
+                  }`}
+                >
+                  {msg.text}
+                </span>
+              )}
             </div>
           )
         })}

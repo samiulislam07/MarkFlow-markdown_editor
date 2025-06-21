@@ -1,7 +1,8 @@
 import { connectToDatabase } from '@/lib/mongodb/connect'
 import mongoose from 'mongoose'
-import Workspace from '@/lib/mongodb/models/Workspace'
+//import WorkspaceChat from '@/lib/mongodb/models/WorkspaceChat'
 import WorkspaceChat from '@/lib/mongodb/models/WorkspaceChat'
+import Workspace from '@/lib/mongodb/models/Workspace' // ✅ needed so it's registered
 import ChatMessage from '@/lib/mongodb/models/ChatMessage'
 import User from '@/lib/mongodb/models/User'
 
@@ -101,6 +102,7 @@ export async function sendMessage({
 export async function getWorkspaceChatlist(userid: string) {
   try {
     await connectToDatabase()
+    console.log('Getting workspace chat list for user:', userid)
     const chats = await WorkspaceChat.find({ participants: userid })
       .populate('workspace', 'name')
       .sort({ updatedAt: -1 })

@@ -1,8 +1,7 @@
-
-
 import mongoose, { Schema, model, models } from 'mongoose';
-import './Workspace';
 import './User';
+import './Workspace';
+
 
 const WorkspaceChatSchema = new Schema({
   workspace: { type: Schema.Types.ObjectId, ref: 'Workspace', required: true },

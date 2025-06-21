@@ -3,8 +3,6 @@
 import React, { useState, useEffect } from 'react'
 import ChatBox from './ChatBox'
 import { useUser } from "@clerk/nextjs";
-import {getWorkspaceChatlist} from '@/lib/services/chatService'
-import { get } from 'http'
 
 interface Channel {
   id: string
@@ -16,13 +14,49 @@ export default function ChatSidebar({ open, onClose }: { open: boolean; onClose:
   const [selected, setSelected] = useState<string | null>(null)
 
   const { user } = useUser();
-  const userId = user?.id;
+  //const userId = user?.id;
+
 
   useEffect(() => {
-  if (!user) return;
+    const userId = user?.id;
+    console.log('Fetching channels for user:', userId)
+    const fetchChannels = async () => {
+      const res = await fetch('/api/chat/global', {
+        headers: {
+          'user-id': userId || '', // from Clerk, cookie, etc.
+        }
+      })
+      const data = await res.json()
+
+
+      if (!data) return;
+      console.log('Fetched channels:', data)
+
+      // ⚠️ Optional: handle unauthorized or server error
+      if (!Array.isArray(data)) return
+
+      // 👇 Map to id + name for chat channels
+      const channelList = data.map((ws: any) => ({
+        id: ws._id,
+        name: (ws.name || 'Unnamed Workspace') + (ws.isPersonal ? ' (Personal)' : ''),
+      }))
+
+      setChannels(channelList)
+      if (channelList.length > 0) setSelected(channelList[0].id)
+    }
+
+    fetchChannels()
+  }, [])
+
+/*useEffect(() => {
+  if (!user || !userId) return;
+  console.log('User ID:', userId)
+
+  console.log('User:', user)
   const fetchChannels = async () => {
     try {
-      const data = await getWorkspaceChatlist(userId? userId : 'defaultUserId')
+      const data = await getWorkspaceChatlist(userId);
+      if (!data) return;
       console.log('Fetched channels:', data)
 
       // ⚠️ Optional: handle unauthorized or server error
@@ -42,7 +76,7 @@ export default function ChatSidebar({ open, onClose }: { open: boolean; onClose:
   }
 
   fetchChannels()
-}, [user])
+}, [user, userId]) */
 
   const selectedChannel = channels.find(c => c.id === selected)
 

@@ -3,6 +3,9 @@ import { auth } from '@clerk/nextjs/server'
 import { connectToDatabase } from '@/lib/mongodb/connect'
 import Chat from '@/lib/mongodb/models/WorkspaceChat'
 import ChatMessage from '@/lib/mongodb/models/ChatMessage'
+import WorkspaceChat from '@/lib/mongodb/models/WorkspaceChat'
+import Workspace from '@/lib/mongodb/models/Workspace' // ✅ needed so it's registered
+import User from '@/lib/mongodb/models/User'
 import fs from 'fs/promises'
 import path from 'path'
 
