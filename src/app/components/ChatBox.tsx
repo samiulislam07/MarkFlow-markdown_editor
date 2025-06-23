@@ -32,25 +32,29 @@ export default function ChatBox({ channel }: { channel: { id: string; name: stri
   return () => clearInterval(interval); // cleanup on unmount
   }, [channel.id]);
 
-  // Scroll to bottom on message update
-  const isFirstLoad = useRef(true);
+const [autoScroll, setAutoScroll] = useState(true);
+const containerRef = useRef<HTMLDivElement | null>(null);
 
-  useEffect(() => {
-  const container = messagesEndRef.current?.parentElement;
+// 🟡 Track whether user is near the bottom
+useEffect(() => {
+  const container = containerRef.current;
   if (!container) return;
 
-  const isNearBottom =
-    container.scrollHeight - container.scrollTop - container.clientHeight < 100;
+  const handleScroll = () => {
+    const isAtBottom =
+      container.scrollHeight - container.scrollTop - container.clientHeight < 100;
+    setAutoScroll(isAtBottom);
+  };
 
-  if (isFirstLoad.current) {
-    // On first load, always scroll to bottom
-    messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
-    isFirstLoad.current = false;
-  } else if (isNearBottom) {
-    // Scroll only if user is already near bottom
+  container.addEventListener('scroll', handleScroll);
+  return () => container.removeEventListener('scroll', handleScroll);
+}, []);
+
+useEffect(() => {
+  if (autoScroll) {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }
-}, [messages]);
+}, [messages, autoScroll]);
 
 
   const handleSend = async () => {
@@ -100,7 +104,7 @@ export default function ChatBox({ channel }: { channel: { id: string; name: stri
     <div className="flex flex-col h-full max-h-screen w-full">
       
       {/* Message List */}
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 bg-gray-50">
+      <div ref={containerRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-3 bg-gray-50">
         {messages.map((msg, idx) => {
           const isYou = msg.sender.firstName === 'You' || msg.sender.firstName === firstName;
           return (
