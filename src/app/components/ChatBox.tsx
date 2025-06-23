@@ -4,8 +4,9 @@ import React, { useState, useRef, useEffect } from 'react'
 import { useUser } from '@clerk/nextjs'
 
 export default function ChatBox({ channel }: { channel: { id: string; name: string } }) {
-  const [messages, setMessages] = useState<{ sender: { firstName: string }; text: string; timestamp: string }[]>([])
+  const [messages, setMessages] = useState<{ sender: { firstName: string }; text: string; timestamp: string; fileUrl?: string, fileName?: string }[]>([])
   const [input, setInput] = useState('')
+  const [file, setFile] = useState<File | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const { user } = useUser();
   const firstName = user?.firstName;
@@ -26,33 +27,60 @@ export default function ChatBox({ channel }: { channel: { id: string; name: stri
 
   fetchMessages(); // initial load
 
-  interval = setInterval(fetchMessages, 5000); // poll every 5 seconds
+  interval = setInterval(fetchMessages, 500); // poll every 50 seconds
 
   return () => clearInterval(interval); // cleanup on unmount
   }, [channel.id]);
 
-  // Scroll to bottom on message update
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+const [autoScroll, setAutoScroll] = useState(true);
+const containerRef = useRef<HTMLDivElement | null>(null);
+
+// 🟡 Track whether user is near the bottom
+useEffect(() => {
+  const container = containerRef.current;
+  if (!container) return;
+
+  const handleScroll = () => {
+    const isAtBottom =
+      container.scrollHeight - container.scrollTop - container.clientHeight < 100;
+    setAutoScroll(isAtBottom);
+  };
+
+  container.addEventListener('scroll', handleScroll);
+  return () => container.removeEventListener('scroll', handleScroll);
+}, []);
+
+useEffect(() => {
+  if (autoScroll) {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }
+}, [messages, autoScroll]);
+
 
   const handleSend = async () => {
-    if (!input.trim()) return
+    if (!input.trim() && !file) return;
 
     const newMessage = {
       sender: { firstName: 'You' },
       text: input,
       timestamp: new Date().toISOString(),
+      fileUrl: file ? URL.createObjectURL(file) : undefined,
+      fileName: file ? file.name : undefined
     }
 
     setMessages((prev) => [...prev, newMessage])
     setInput('')
+    setFile(null)
+
+    const formData = new FormData();
+    formData.append('workspaceId', channel.id);
+    formData.append('message', input);
+    if (file) formData.append('file', file);
 
     try {
       const res = await fetch('/api/chat/send', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workspaceId: channel.id, message: input }),
+        body: formData,
       })
       const data = await res.json()
 
@@ -62,24 +90,46 @@ export default function ChatBox({ channel }: { channel: { id: string; name: stri
       console.error('Failed to send message:', error)
     }
   }
- 
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selected = e.target.files?.[0];
+    if (!selected) return;
+    setFile(selected); // Just store the file
+  };
+
+  useEffect(() => {
+    console.log('Messages:', messages);
+  }, [messages]);
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full max-h-screen w-full">
+      
       {/* Message List */}
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 bg-gray-50">
+      <div ref={containerRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-3 bg-gray-50">
         {messages.map((msg, idx) => {
           const isYou = msg.sender.firstName === 'You' || msg.sender.firstName === firstName;
           return (
             <div key={idx} className={`flex flex-col ${isYou ? 'items-end' : 'items-start'}`}>
               <span className="text-xs text-gray-500 mb-1">{msg.sender.firstName}</span>
-              <span
-                className={`inline-block px-4 py-2 rounded-2xl max-w-xs break-words ${
-                  isYou ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-900'
-                }`}
-              >
-                {msg.text}
-              </span>
+              {msg.fileUrl && (
+                <a
+                  href={msg.fileUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-600 underline mb-1"
+                  download={msg.fileName}
+                >
+                  {msg.fileName || 'Download File'} {/* ✅ fallback to 'Download File' */}
+                </a>
+              )}
+              {msg.text?.trim() && (
+                <span
+                  className={`inline-block px-4 py-2 rounded-2xl max-w-xs break-words ${
+                    isYou ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-900'
+                  }`}
+                >
+                  {msg.text}
+                </span>
+              )}
             </div>
           )
         })}
@@ -87,21 +137,38 @@ export default function ChatBox({ channel }: { channel: { id: string; name: stri
       </div>
 
       {/* Input Bar */}
-      <div className="p-3 border-t bg-white flex items-center gap-2">
-        <input
-          className="flex-1 rounded-full border px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
-          type="text"
-          placeholder={`Message #${channel.name}`}
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-        />
-        <button
-          className="bg-blue-500 text-white px-4 py-2 rounded-full font-semibold hover:bg-blue-600 transition"
-          onClick={handleSend}
-        >
-          Send
-        </button>
+      <div className="p-3 border-t bg-white flex flex-col gap-2 shrink-0 w-full">
+        {file && (
+          <div className="text-sm text-gray-600 px-2">
+            📎 <strong>{file.name}</strong> selected
+          </div>
+        )}
+        <div className="flex items-center gap-2">
+          <input
+            type="file"
+            id="file-upload"
+            className="hidden"
+            accept="image/*,application/pdf"
+            onChange={handleFileUpload}
+          />
+          <label htmlFor="file-upload" className="cursor-pointer text-blue-500 hover:text-blue-700 text-xl">
+            📎
+          </label>
+          <input
+            className="flex-1 rounded-full border px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
+            type="text"
+            placeholder={`Message #${channel.name}`}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+          />
+          <button
+            className="bg-blue-500 text-white px-4 py-2 rounded-full font-semibold hover:bg-blue-600 transition min-w-[64px]"
+            onClick={handleSend}
+          >
+            Send
+          </button>
+        </div>
       </div>
     </div>
   )

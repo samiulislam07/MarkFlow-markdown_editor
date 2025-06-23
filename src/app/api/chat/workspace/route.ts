@@ -14,6 +14,7 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url)
     const workspaceId = searchParams.get('workspaceId')
+    console.log('Fetching workspace chat for:', workspaceId)
 
     if (!workspaceId) {
       return NextResponse.json({ error: 'workspaceId is required' }, { status: 400 })
@@ -22,9 +23,13 @@ export async function GET(req: NextRequest) {
     await connectToDatabase()
     const messages = await getWorkspaceChat(workspaceId)
 
+    //console.log('Fetched messages:', messages)
+
     const formatted = messages.map(msg => ({
       sender: { firstName: msg.sender?.firstName || 'Unknown' },
       text: msg.message,
+      fileName: msg.fileName || null, // Use fileName if available
+      fileUrl: msg.fileUrl || null, // Use fileUrl if available
       timestamp: msg.timestamp,
     }))
 
