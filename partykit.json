@@ -1,0 +1,7 @@
+{
+  "name": "markflow-collaborative-editor",
+  "main": "party/index.ts",
+  "vars": {
+    "NEXTJS_URL": "http://localhost:3000"
+  }
+}
