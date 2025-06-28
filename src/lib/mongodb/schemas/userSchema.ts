@@ -95,10 +95,8 @@ export const userSchema = new Schema(
   }
 );
 
-// Additional indexes for better performance 
-userSchema.index({ clerkId: 1 });
-userSchema.index({ email: 1 });
-userSchema.index({ username: 1 });
+// Additional indexes for better performance (only non-unique indexes)
+// Note: clerkId, email, and username already have unique indexes from field definitions
 userSchema.index({ createdAt: -1 });
 userSchema.index({ lastLogin: -1 });
 userSchema.index({ isActive: 1 });
