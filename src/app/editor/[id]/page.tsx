@@ -6,6 +6,8 @@ import * as Y from 'yjs';
 import YPartyKitProvider from 'y-partykit/provider';
 import { useUser } from '@clerk/nextjs';
 import { useRouter } from 'next/navigation';
+import ChatLauncher from '@/app/components/ChatLauncher';
+
 
 // Dynamically import the editor component with SSR turned off
 const CollaborativeEditor = dynamic(
@@ -173,7 +175,7 @@ export default function EditorPage({ params }: PageProps) {
         doc={doc}
         provider={provider}
       />
-      {/* <ChatLauncher /> */}
+      <ChatLauncher /> 
     </>
   );
 }

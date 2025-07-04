@@ -563,7 +563,7 @@ export default async function Dashboard() {
           </div>
         </div>
 
-        {/* <ChatLauncher /> */}
+        <ChatLauncher />
       </div>
     )
   } catch (error) {

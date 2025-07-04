@@ -27,7 +27,7 @@ export default function ChatBox({ channel }: { channel: { id: string; name: stri
 
   fetchMessages(); // initial load
 
-  interval = setInterval(fetchMessages, 500); // poll every 50 seconds
+  interval = setInterval(fetchMessages, 500000); // poll every 50 seconds
 
   return () => clearInterval(interval); // cleanup on unmount
   }, [channel.id]);
@@ -57,8 +57,56 @@ useEffect(() => {
 }, [messages, autoScroll]);
 
 
+const extractURL = (input: string) => {
+  const match = input.match(/https:\/\/openreview\.net\/forum\?id=[\w-]+/);
+  return match ? match[0] : null;
+};
+
+const extractQuery = (input: string) => {
+  // Remove '@Agent' and URL to isolate query
+  return input.replace(/^@Agent\s*/, '').replace(/https:\/\/openreview\.net\/forum\?id=[\w-]+/, '').trim();
+};
+
   const handleSend = async () => {
     if (!input.trim() && !file) return;
+
+    if (input.trim().startsWith("@Agent")) {
+      const openreview_url = extractURL(input); // Extract link
+      const query = extractQuery(input); // Extract query text
+
+      if (!openreview_url || !file) {
+        alert("Please include a valid OpenReview URL and upload the paper PDF.");
+        return;
+      }
+
+      const agentFormData = new FormData();
+      agentFormData.append("openreview_url", openreview_url);
+      agentFormData.append("query", query);
+      agentFormData.append("pdf", file);
+
+      try {
+        const res = await fetch("/api/agent/handle-task", {
+          method: "POST",
+          body: agentFormData,
+        });
+        const data = await res.json();
+        setMessages((prev) => [
+          ...prev,
+          {
+            sender: { firstName: "Agent" },
+            text: data.response,
+            timestamp: new Date().toISOString(),
+          },
+        ]);
+      } catch (err) {
+        console.error("Agent fetch error:", err);
+      }
+
+      setInput("");
+      setFile(null);
+      return;
+    }
+
 
     const newMessage = {
       sender: { firstName: 'You' },
