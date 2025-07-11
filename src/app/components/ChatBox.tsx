@@ -10,6 +10,108 @@ export default function ChatBox({ channel }: { channel: { id: string; name: stri
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const { user } = useUser();
   const firstName = user?.firstName;
+  const wsRef = useRef<WebSocket | null>(null);
+  const [typingUsers, setTypingUsers] = useState<string[]>([]);
+  const displayName = user?.firstName ?? 'Anonymous';
+  const [activeUsers, setActiveUsers] = useState<string[]>([]);
+  const userId = user?.id ?? 'anonymous';
+
+  useEffect(() => {
+    console.log("Typing users:", typingUsers);
+  }, [typingUsers]);
+
+  useEffect(() => { 
+    if (!user) return;
+    const displayName = user?.firstName ?? 'Anonymous';
+    console.log(`Connecting to chat room with display name: ${displayName}`);
+    const ws = new WebSocket(
+      `ws://localhost:1999/parties/chat/${channel.id}?user=${encodeURIComponent(displayName)}&id=${userId}`
+    );
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      ws.send(JSON.stringify({
+        type: 'init',
+        userId: user?.id ?? 'anonymous',
+        userName: user?.firstName ?? 'Anonymous'
+      }));
+    };
+
+    ws.onmessage = (event) => {
+      let data: any;
+      //ws.send(JSON.stringify({ type: "init", userId: displayName }));
+
+      if (typeof event.data === "string") {
+      // It's already a string — parse directly
+        data = JSON.parse(event.data);
+      } else if (event.data instanceof Blob) {
+      // Convert Blob to text, then parse
+        const reader = new FileReader();
+        reader.onload = () => {
+        try {
+          const text = reader.result as string;
+          data = JSON.parse(text);
+        } catch (e) {
+          console.error("Failed to parse message:", e);
+        }
+      };
+      reader.readAsText(event.data);
+    } else {
+      console.warn("Received unknown message type", event.data);
+    }
+
+
+      switch (data.type) {
+        case 'chat':
+          setMessages((prev) => [...prev, data]);
+          break;
+
+        case 'typing':
+          setTypingUsers((prev) =>
+            data.isTyping
+              ? [...new Set([...prev, data.userId])]
+              : prev.filter((id) => id !== data.userId)
+          );
+          break;
+
+        case 'presence':
+          setActiveUsers((prev) => {
+            if (data.status === 'joined') {
+              return [...new Set([...prev, data.userName])];
+            } else if (data.status === 'left') {
+              return prev.filter((name) => name !== data.userName);
+            }
+            return prev;
+          });
+          break;
+      }
+    };
+
+    
+
+    ws.onclose = () => {
+      console.log('WebSocket closed');
+    };
+
+    return () => {
+      ws.close();
+    };
+  }, [channel.id]);
+
+  const typingTimeout = useRef<NodeJS.Timeout | null>(null);
+
+    const handleTyping = () => {
+      if (!wsRef.current) return;
+
+      wsRef.current.send(JSON.stringify({ type: 'typing', isTyping: true }));
+
+      if (typingTimeout.current) clearTimeout(typingTimeout.current);
+
+      typingTimeout.current = setTimeout(() => {
+        wsRef.current?.send(JSON.stringify({ type: 'typing', isTyping: false }));
+      }, 2000); // 2s after last keystroke
+    };
+
 
   // Load messages from the backend when channel changes
   useEffect(() => {
@@ -90,6 +192,7 @@ const extractQuery = (input: string) => {
           body: agentFormData,
         });
         const data = await res.json();
+        console.log("Agent response:", data);
         setMessages((prev) => [
           ...prev,
           {
@@ -148,9 +251,24 @@ const extractQuery = (input: string) => {
     console.log('Messages:', messages);
   }, [messages]);
 
+  // Simple animated dots for typing indicator
+  function TypingDots() {
+    return (
+      <span>
+        <span className="animate-bounce">.</span>
+        <span className="animate-bounce" style={{ animationDelay: '0.2s' }}>.</span>
+        <span className="animate-bounce" style={{ animationDelay: '0.5s' }}>.</span>
+      </span>
+    );
+  }
+
   return (
     <div className="flex flex-col h-full max-h-screen w-full">
-      
+      {activeUsers.length > 0 && (
+          <div className="px-4 py-2 text-sm text-gray-700 bg-gray-100 border-b border-gray-300">
+            <strong>Active:</strong> {activeUsers.join(", ")}
+          </div>
+        )}
       {/* Message List */}
       <div ref={containerRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-3 bg-gray-50">
         {messages.map((msg, idx) => {
@@ -181,9 +299,17 @@ const extractQuery = (input: string) => {
             </div>
           )
         })}
+        {typingUsers.length > 0 && (
+          <div className="flex flex-col items-start animate-pulse">
+            <span
+              className="inline-block px-4 py-2 rounded-2xl max-w-xs break-words bg-gray-300 text-gray-700 text-base"
+            >
+              <TypingDots />
+            </span>
+          </div>
+        )}
         <div ref={messagesEndRef} />
       </div>
-
       {/* Input Bar */}
       <div className="p-3 border-t bg-white flex flex-col gap-2 shrink-0 w-full">
         {file && (
@@ -208,7 +334,10 @@ const extractQuery = (input: string) => {
             placeholder={`Message #${channel.name}`}
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+            onKeyDown={(e) => {
+             handleTyping();
+             if (e.key === 'Enter') handleSend();
+          }}
           />
           <button
             className="bg-blue-500 text-white px-4 py-2 rounded-full font-semibold hover:bg-blue-600 transition min-w-[64px]"

@@ -19,7 +19,7 @@ from langchain.chat_models import init_chat_model
 logging.basicConfig(level=logging.INFO)
 load_dotenv()
 
-os.environ["GOOGLE_API_KEY"] = ""
+os.environ["GOOGLE_API_KEY"] = "AIzaSyChma_wxOBTR-ANTaKglvVHDk0rAwBVKmw"
 
 # Init
 app = FastAPI()

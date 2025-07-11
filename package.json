@@ -13,7 +13,7 @@
     "party:deploy": "partykit deploy"
   },
   "dependencies": {
-    "@clerk/nextjs": "^6.23.1",
+    "@clerk/nextjs": "^6.24.0",
     "@codemirror/commands": "^6.3.0",
     "@codemirror/lang-markdown": "^6.3.0",
     "@codemirror/state": "^6.5.2",
@@ -32,7 +32,7 @@
     "next": "15.3.3",
     "node-fetch": "^3.3.2",
     "nodemailer": "^7.0.3",
-    "partykit": "^0.0.115",
+    "partykit": "^0.0.160",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-katex": "^3.1.0",
