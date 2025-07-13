@@ -170,45 +170,7 @@ const extractQuery = (input: string) => {
 };
 
   const handleSend = async () => {
-    if (!input.trim() && !file) return;
-
-    if (input.trim().startsWith("@Agent")) {
-      const openreview_url = extractURL(input); // Extract link
-      const query = extractQuery(input); // Extract query text
-
-      if (!openreview_url || !file) {
-        alert("Please include a valid OpenReview URL and upload the paper PDF.");
-        return;
-      }
-
-      const agentFormData = new FormData();
-      agentFormData.append("openreview_url", openreview_url);
-      agentFormData.append("query", query);
-      agentFormData.append("pdf", file);
-
-      try {
-        const res = await fetch("/api/agent/handle-task", {
-          method: "POST",
-          body: agentFormData,
-        });
-        const data = await res.json();
-        console.log("Agent response:", data);
-        setMessages((prev) => [
-          ...prev,
-          {
-            sender: { firstName: "Agent" },
-            text: data.response,
-            timestamp: new Date().toISOString(),
-          },
-        ]);
-      } catch (err) {
-        console.error("Agent fetch error:", err);
-      }
-
-      setInput("");
-      setFile(null);
-      return;
-    }
+    if (!input.trim()) return;
 
 
     const newMessage = {
@@ -219,7 +181,7 @@ const extractQuery = (input: string) => {
       fileName: file ? file.name : undefined
     }
 
-    setMessages((prev) => [...prev, newMessage])
+    //setMessages((prev) => [...prev, newMessage])
     setInput('')
     setFile(null)
 
@@ -235,11 +197,62 @@ const extractQuery = (input: string) => {
       })
       const data = await res.json()
 
-
       console.log(channel.id, input)
     } catch (error) {
       console.error('Failed to send message:', error)
     }
+
+    if (input.trim().startsWith("@Agent")) {
+      const openreview_url = extractURL(input); // Extract link
+      const query = extractQuery(input); // Extract query text
+
+
+      const agentFormData = new FormData();
+      agentFormData.append("openreview_url", openreview_url ? openreview_url : '');
+      agentFormData.append("query", query);
+      agentFormData.append("pdf", file ? file : '');
+      let agentReply = '';
+
+      try {
+        const res = await fetch("/api/agent/handle-task", {
+          method: "POST",
+          body: agentFormData,
+        });
+        const data = await res.json();
+        console.log("Agent response:", data);
+        agentReply = data.response || 'No response from agent';
+        setMessages((prev) => [
+          ...prev, newMessage,
+          {
+            sender: { firstName: "Agent" },
+            text: data.response,
+            timestamp: new Date().toISOString(),
+          },
+        ]);
+      } catch (err) {
+        console.error("Agent fetch error:", err);
+      }
+
+      const agentResponse = new FormData();
+      agentResponse.append('workspaceId', channel.id);
+      agentResponse.append('message', agentReply);
+
+      try {
+        const res = await fetch('/api/chat/send', {
+          method: 'POST',
+          body: agentResponse,
+        })
+
+        console.log(channel.id, input)
+      } catch (error) {
+        console.error('Failed to send message:', error)
+      }
+
+      setInput("");
+      setFile(null);
+    }
+
+
   }
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = e.target.files?.[0];

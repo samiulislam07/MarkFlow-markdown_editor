@@ -3,7 +3,8 @@
 import fitz  # PyMuPDF
 from bs4 import BeautifulSoup
 from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain.vectorstores import FAISS
+#from langchain.vectorstores import FAISS
+from langchain_community.vectorstores import FAISS
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 import requests
 from bs4 import BeautifulSoup
@@ -11,6 +12,7 @@ import openreview
 import requests
 import openreview.api
 import time
+from langchain.text_splitter import RecursiveCharacterTextSplitter
 from typing import List, Dict, Any
 
 
@@ -161,6 +163,8 @@ def parse_openreview_api_debug(forum_id: str) -> List[Dict[str, Any]]:
         raise RuntimeError(f"Failed to parse OpenReview API for forum ID {forum_id}: {e}")
 
 def extract_text_from_pdf(pdf_bytes: bytes) -> str:
+    if not pdf_bytes or len(pdf_bytes) == 0:
+        return ""
     try:
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
         all_text = ""
@@ -170,7 +174,7 @@ def extract_text_from_pdf(pdf_bytes: bytes) -> str:
     except Exception as e:
         raise RuntimeError(f"Failed to extract text from PDF: {e}")
 
-def vectorize(text: str):
+#def vectorize(text: str):
     """
     Chunk and embed the paper text using LangChain + FAISS.
     """
@@ -189,6 +193,17 @@ def vectorize(text: str):
         return vectorstore
     except Exception as e:
         raise RuntimeError(f"Vectorization failed: {e}")
+
+def vectorize(text: str) -> List[str]:
+    """
+    Chunk the paper text into smaller pieces for later vector embedding.
+    Returns a list of text chunks (serializable).
+    """
+    try:
+        splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
+        return splitter.split_text(text)
+    except Exception as e:
+        raise RuntimeError(f"Text chunking failed: {e}")
 
 def query_vector_store(query: str, vectorstore) -> str:
     """
