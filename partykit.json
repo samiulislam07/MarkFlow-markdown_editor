@@ -1,6 +1,9 @@
 {
   "name": "markflow-collaborative-editor",
   "main": "party/index.ts",
+  "parties": {
+    "chat": "party/chat.ts"
+  },
   "vars": {
     "NEXTJS_URL": "http://localhost:3000"
   }
