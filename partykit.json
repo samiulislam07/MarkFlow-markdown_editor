@@ -1,6 +1,7 @@
 {
   "name": "markflow-collaborative-editor",
   "main": "party/index.ts",
+  "compatibilityDate": "2025-07-02",
   "vars": {
     "NEXTJS_URL": "http://localhost:3000"
   }
