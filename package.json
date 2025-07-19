@@ -13,7 +13,7 @@
     "party:deploy": "partykit deploy"
   },
   "dependencies": {
-    "@clerk/nextjs": "^6.23.1",
+    "@clerk/nextjs": "^6.24.0",
     "@codemirror/commands": "^6.3.0",
     "@codemirror/lang-markdown": "^6.3.0",
     "@codemirror/state": "^6.5.2",
@@ -22,6 +22,7 @@
     "@phosphor-icons/react": "^2.1.10",
     "@types/nodemailer": "^6.4.17",
     "better-react-mathjax": "^2.3.0",
+    "form-data": "^4.0.3",
     "formidable": "^3.5.4",
     "framer-motion": "^12.18.1",
     "katex": "^0.16.22",
@@ -29,8 +30,9 @@
     "mongodb": "^6.17.0",
     "mongoose": "^8.15.1",
     "next": "15.3.3",
+    "node-fetch": "^3.3.2",
     "nodemailer": "^7.0.3",
-    "partykit": "^0.0.115",
+    "partykit": "^0.0.160",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-katex": "^3.1.0",
@@ -44,6 +46,7 @@
   "devDependencies": {
     "@eslint/eslintrc": "^3",
     "@tailwindcss/postcss": "^4",
+    "@types/form-data": "^2.2.1",
     "@types/formidable": "^3.4.5",
     "@types/katex": "^0.16.7",
     "@types/node": "^20",

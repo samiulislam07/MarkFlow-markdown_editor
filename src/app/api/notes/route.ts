@@ -46,12 +46,13 @@ export async function GET(request: NextRequest) {
     // Calculate skip for pagination
     const skip = (page - 1) * limit;
 
-    // Fetch notes with pagination
+    // Fetch notes with simplified population to avoid schema errors
     const notes = await Note.find(query)
       .populate('author', 'name email avatar')
       .populate('lastEditedBy', 'name email avatar')
-      .populate('tags', 'name color')
-      .populate('folder', 'name color icon')
+      // .populate('tags', 'name color')
+      // .populate('folder', 'name color icon')
+      .populate('workspace', 'name')
       .sort(search ? { score: { $meta: 'textScore' } } : { updatedAt: -1 })
       .skip(skip)
       .limit(limit);

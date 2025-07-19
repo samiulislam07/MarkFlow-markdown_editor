@@ -6,10 +6,12 @@ import * as Y from 'yjs';
 import YPartyKitProvider from 'y-partykit/provider';
 import { useUser } from '@clerk/nextjs';
 import { useRouter } from 'next/navigation';
+import ChatLauncher from '@/app/components/ChatLauncher';
+
 
 // Dynamically import the editor component with SSR turned off
-const CollaborativeEditor = dynamic(
-  () => import('@/app/components/MergedMarkdownEditor'),
+const EditorWithSidebar = dynamic(
+  () => import('@/app/components/EditorWithSidebar'),
   {
     ssr: false,
     loading: () => (
@@ -35,6 +37,7 @@ export default function EditorPage({ params }: PageProps) {
   const router = useRouter();
   const [hasAccess, setHasAccess] = useState<boolean | null>(null);
   const [documentExists, setDocumentExists] = useState<boolean | null>(null);
+  const [workspaceId, setWorkspaceId] = useState<string | undefined>(undefined);
 
   // Check document access and existence
   useEffect(() => {
@@ -48,8 +51,15 @@ export default function EditorPage({ params }: PageProps) {
         });
 
         if (response.ok) {
+          const documentData = await response.json();
           setDocumentExists(true);
           setHasAccess(true);
+          // Extract workspace ID from document data
+          if (documentData && documentData.workspace) {
+            setWorkspaceId(typeof documentData.workspace === 'string' 
+              ? documentData.workspace 
+              : documentData.workspace._id);
+          }
         } else if (response.status === 404) {
           setDocumentExists(false);
           setHasAccess(false);
@@ -79,7 +89,10 @@ export default function EditorPage({ params }: PageProps) {
     const yDoc = new Y.Doc();
     
     // Only create provider if we have environment variable
-    const partyKitHost = process.env.NEXT_PUBLIC_PARTYKIT_HOST || 'localhost:1999';
+    const partyKitHost = process.env.NEXT_PUBLIC_PARTYKIT_HOST;
+    if (!partyKitHost) {
+      throw new Error('NEXT_PUBLIC_PARTYKIT_HOST environment variable is not set');
+    }
     
     const yProvider = new YPartyKitProvider(
       partyKitHost,
@@ -99,6 +112,68 @@ export default function EditorPage({ params }: PageProps) {
 
     return { doc: yDoc, provider: yProvider };
   }, [documentId, user]);
+
+  // Load document content when document exists and Y.js is ready
+  useEffect(() => {
+    let isMounted = true;
+    
+    const loadDocumentContent = async () => {
+      if (!documentExists || hasAccess === false || !doc) return;
+
+      try {
+        const response = await fetch(`/api/notes/${documentId}`, {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' },
+        });
+
+        if (response.ok && isMounted) {
+          const documentData = await response.json();
+          
+          // Wait for Y.js provider to be ready before setting content
+          const initializeContent = () => {
+            if (!isMounted) return;
+            
+            const ytext = doc.getText('codemirror');
+            const ytitle = doc.getText('title');
+            
+            // Only set content if Y.js document is empty (prevents overwriting collaborative changes)
+            if (ytext.length === 0 && documentData.content) {
+              doc.transact(() => {
+                ytext.insert(0, documentData.content);
+              });
+            }
+            
+            if (ytitle.length === 0 && documentData.title) {
+              doc.transact(() => {
+                ytitle.insert(0, documentData.title);
+              });
+            }
+          };
+
+          // Initialize content either immediately or wait for provider
+          if (provider.ws?.readyState === WebSocket.OPEN) {
+            initializeContent();
+          } else {
+            const handleConnect = () => {
+              if (provider.ws?.readyState === WebSocket.OPEN) {
+                initializeContent();
+                provider.off('status', handleConnect);
+              }
+            };
+            provider.on('status', handleConnect);
+          }
+        }
+      } catch (error) {
+        console.error('Error loading document content:', error);
+      }
+    };
+
+    loadDocumentContent();
+    
+    return () => {
+      isMounted = false;
+    };
+  }, [documentExists, hasAccess, documentId, doc, provider]);
 
   // Show loading while checking auth
   if (!isLoaded) {
@@ -168,12 +243,13 @@ export default function EditorPage({ params }: PageProps) {
   // Render the collaborative editor
   return (
     <>
-      <CollaborativeEditor
+      <EditorWithSidebar
         documentId={documentId}
+        workspaceId={workspaceId}
         doc={doc}
         provider={provider}
       />
-      {/* <ChatLauncher /> */}
+      <ChatLauncher /> 
     </>
   );
 }
