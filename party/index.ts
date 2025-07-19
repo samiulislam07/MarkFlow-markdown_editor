@@ -6,6 +6,13 @@ export default class YjsServer implements Party.Server {
   constructor(public party: Party.Room) {}
 
   async onConnect(conn: Party.Connection) {
+    // Handle different room types
+    if (this.party.id.startsWith('comments-')) {
+      // This is a comment room - handle comment synchronization
+      return this.handleCommentRoom(conn);
+    }
+    
+    // Default to Yjs document collaboration
     return onConnect(conn, this.party, {
       // Persist the Yjs document to PartyKit's built-in storage
       persist: {
@@ -42,6 +49,36 @@ export default class YjsServer implements Party.Server {
           // }
         },
       }
+    });
+  }
+
+  private async handleCommentRoom(conn: Party.Connection) {
+    // Handle comment room connections
+    console.log(`Comment room ${this.party.id}: User connected`);
+
+    // Listen for comment messages
+    conn.addEventListener("message", (event) => {
+      try {
+        const message = JSON.parse(event.data as string);
+        
+        switch (message.type) {
+          case 'comment_added':
+          case 'comment_updated':
+          case 'comment_deleted':
+            // Broadcast the comment change to all connected clients
+            this.party.broadcast(JSON.stringify(message), [conn.id]);
+            console.log(`Broadcasting ${message.type} for comment room ${this.party.id}`);
+            break;
+          default:
+            console.log(`Unknown message type in comment room: ${message.type}`);
+        }
+      } catch (error) {
+        console.error('Error handling comment message:', error);
+      }
+    });
+
+    conn.addEventListener("close", () => {
+      console.log(`Comment room ${this.party.id}: User disconnected`);
     });
   }
 }
