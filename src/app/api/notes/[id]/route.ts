@@ -7,16 +7,18 @@ import Workspace, { ICollaborator } from '@/lib/mongodb/models/Workspace';
 import Folder from '@/lib/mongodb/models/Folder';
 import Tag from '@/lib/mongodb/models/Tag';
 
+export const dynamic = 'force-dynamic';
+
 interface RouteParams {
-  params: Promise<{
+  params: {
     id: string;
-  }>;
+  };
 }
 
 // GET - Fetch a specific note
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
-    const { id } = await params;
+    const { id } = params;
     const { userId } = await auth();
     if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -38,7 +40,6 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'Note not found' }, { status: 404 });
     }
 
-    // Check if user has access to this note
     const workspace = note.workspace as any;
     const hasAccess = workspace.owner.toString() === user._id.toString() ||
       workspace.collaborators.some((collab: ICollaborator) => 
@@ -60,7 +61,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 // PUT - Update a specific note
 export async function PUT(request: NextRequest, { params }: RouteParams) {
   try {
-    const { id } = await params;
+    const { id } = params;
     const { userId } = await auth();
     if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -81,7 +82,6 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'Note not found' }, { status: 404 });
     }
 
-    // Check if user has access to edit this note
     const workspace = note.workspace as any;
     const hasAccess = workspace.owner.toString() === user._id.toString() ||
       workspace.collaborators.some((collab: ICollaborator) => 
@@ -93,11 +93,9 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 });
     }
 
-    // Calculate word count and reading time
     const wordCount = (content || '').split(/\s+/).filter((word: string) => word.length > 0).length;
     const readingTime = Math.ceil(wordCount / 200);
 
-    // Update the note
     const updatedNote = await Note.findByIdAndUpdate(
       id,
       {
@@ -127,41 +125,47 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
   }
 }
 
-// DELETE - Delete a specific note
-export async function DELETE(request: NextRequest, { params }: RouteParams) {
+// DELETE - Delete a specific note (Hard Delete)
+export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const { id } = await params;
     const { userId } = await auth();
     if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     await connectToDatabase();
+    const { id } = params;
+
+    const note = await Note.findById(id);
+    if (!note) {
+      return NextResponse.json({ error: 'Note not found' }, { status: 404 });
+    }
 
     const user = await User.findOne({ clerkId: userId });
     if (!user) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
-    const note = await Note.findById(id).populate('workspace', 'name owner collaborators');
-    if (!note) {
-      return NextResponse.json({ error: 'Note not found' }, { status: 404 });
+    const workspace = await Workspace.findById(note.workspace);
+    if (!workspace) {
+      return NextResponse.json({ error: 'Workspace not found' }, { status: 404 });
     }
 
-    // Check if user has access to delete this note (only owner can delete)
-    const workspace = note.workspace as any;
-    const canDelete = workspace.owner.toString() === user._id.toString() ||
-      note.author.toString() === user._id.toString();
+    const hasWriteAccess = workspace.owner.toString() === user._id.toString() ||
+      workspace.collaborators.some((collab: ICollaborator) => 
+        collab.user.toString() === user._id.toString() && collab.role === 'editor'
+      );
 
-    if (!canDelete) {
-      return NextResponse.json({ error: 'Access denied' }, { status: 403 });
+    if (!hasWriteAccess) {
+      return NextResponse.json({ error: 'You do not have permission to delete this note.' }, { status: 403 });
     }
 
-    // Soft delete by archiving
-    await Note.findByIdAndUpdate(id, { 
-      isArchived: true,
-      updatedAt: new Date()
-    });
+    // Remove note reference from its parent folder, if it exists
+    if (note.folder) {
+      await Folder.findByIdAndUpdate(note.folder, { $pull: { notes: note._id } });
+    }
+
+    await Note.findByIdAndDelete(id);
 
     return NextResponse.json({ message: 'Note deleted successfully' });
 
@@ -169,4 +173,4 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     console.error('Error deleting note:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
-} 
+}

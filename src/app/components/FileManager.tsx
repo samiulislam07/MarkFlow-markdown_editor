@@ -4,9 +4,13 @@ import { useState, useEffect, useCallback } from 'react'
 import { Folder, FileText, Plus, Upload, Home } from 'lucide-react'
 import Link from 'next/link'
 import CreateFolderModal from './CreateFolderModal'
-import UploadFileModal from './UploadFileModal' // Import the new upload modal
+import UploadFileModal from './UploadFileModal'
+import ConfirmationModal from './ConfirmationModal' // Import ConfirmationModal
+import ItemContextMenu from './ItemContextMenu' // Import ItemContextMenu
 
 // Define types for our data structures
+type ItemType = 'folder' | 'note' | 'file';
+
 interface User {
   _id: string;
   name: string;
@@ -52,7 +56,12 @@ export default function FileManager({ workspaceId, userRole }: FileManagerProps)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [isCreateFolderModalOpen, setCreateFolderModalOpen] = useState(false);
-  const [isUploadModalOpen, setUploadModalOpen] = useState(false); // State for upload modal
+  const [isUploadModalOpen, setUploadModalOpen] = useState(false);
+  
+  // State for deletion
+  const [itemToDelete, setItemToDelete] = useState<{ id: string; name: string; type: ItemType } | null>(null);
+  const [isConfirmModalOpen, setConfirmModalOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const canEdit = userRole === 'owner' || userRole === 'editor';
 
@@ -149,6 +158,37 @@ export default function FileManager({ workspaceId, userRole }: FileManagerProps)
     await fetchData(currentFolderId);
   };
 
+  const handleDeleteClick = (id: string, name: string, type: ItemType) => {
+    setItemToDelete({ id, name, type });
+    setConfirmModalOpen(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!itemToDelete) return;
+
+    setIsDeleting(true);
+    setError(null);
+
+    try {
+      const res = await fetch(`/api/${itemToDelete.type}s/${itemToDelete.id}`, {
+        method: 'DELETE',
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.error || `Failed to delete ${itemToDelete.type}`);
+      }
+
+      setConfirmModalOpen(false);
+      setItemToDelete(null);
+      await fetchData(currentFolderId); // Refresh the list
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   return (
     <>
       <div className="bg-white rounded-lg shadow">
@@ -200,38 +240,43 @@ export default function FileManager({ workspaceId, userRole }: FileManagerProps)
                 <div
                   key={folder._id}
                   onClick={() => handleFolderClick(folder)}
-                  className="flex items-center p-4 bg-gray-50 rounded-lg hover:bg-gray-100 border border-gray-200 cursor-pointer transition-colors"
+                  className="group flex items-center justify-between p-4 bg-gray-50 rounded-lg hover:bg-gray-100 border border-gray-200 cursor-pointer transition-colors"
                 >
-                  <Folder className="w-6 h-6 text-indigo-500 mr-4" />
-                  <span className="font-medium text-gray-800">{folder.name}</span>
+                  <div className="flex items-center overflow-hidden">
+                    <Folder className="w-6 h-6 text-indigo-500 mr-4 flex-shrink-0" />
+                    <span className="font-medium text-gray-800 truncate">{folder.name}</span>
+                  </div>
+                  <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                    <ItemContextMenu canEdit={canEdit} onDelete={() => handleDeleteClick(folder._id, folder.name, 'folder')} />
+                  </div>
                 </div>
               ))}
 
               {notes.map(note => (
-                <Link
-                  key={note._id}
-                  href={`/editor/${note._id}`}
-                  className="flex items-center p-4 bg-gray-50 rounded-lg hover:bg-gray-100 border border-gray-200 cursor-pointer transition-colors"
-                >
-                  <FileText className="w-6 h-6 text-blue-500 mr-4" />
-                  <span className="font-medium text-gray-800">{note.title}</span>
-                </Link>
+                <div key={note._id} className="group flex items-center justify-between p-4 bg-gray-50 rounded-lg hover:bg-gray-100 border border-gray-200 transition-colors">
+                  <Link href={`/editor/${note._id}`} className="flex items-center flex-grow overflow-hidden">
+                    <FileText className="w-6 h-6 text-blue-500 mr-4 flex-shrink-0" />
+                    <span className="font-medium text-gray-800 truncate">{note.title}</span>
+                  </Link>
+                   <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                    <ItemContextMenu canEdit={canEdit} onDelete={() => handleDeleteClick(note._id, note.title, 'note')} />
+                  </div>
+                </div>
               ))}
 
               {files.map(file => (
-                <a
-                  key={file._id}
-                  href={file.storageUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center p-4 bg-gray-50 rounded-lg hover:bg-gray-100 border border-gray-200 cursor-pointer transition-colors"
-                >
-                  <FileText className="w-6 h-6 text-green-500 mr-4" />
-                  <div className="flex-1">
-                      <span className="font-medium text-gray-800 block">{file.fileName}</span>
-                      <span className="text-xs text-gray-500">{(file.fileSize / 1024).toFixed(2)} KB</span>
+                 <div key={file._id} className="group flex items-center justify-between p-4 bg-gray-50 rounded-lg hover:bg-gray-100 border border-gray-200 transition-colors">
+                  <a href={file.storageUrl} target="_blank" rel="noopener noreferrer" className="flex items-center flex-grow overflow-hidden">
+                    <FileText className="w-6 h-6 text-green-500 mr-4 flex-shrink-0" />
+                    <div className="flex-1 overflow-hidden">
+                        <span className="font-medium text-gray-800 block truncate">{file.fileName}</span>
+                        <span className="text-xs text-gray-500">{(file.fileSize / 1024).toFixed(2)} KB</span>
+                    </div>
+                  </a>
+                   <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                    <ItemContextMenu canEdit={canEdit} onDelete={() => handleDeleteClick(file._id, file.fileName, 'file')} />
                   </div>
-                </a>
+                </div>
               ))}
             </div>
           )}
@@ -256,6 +301,17 @@ export default function FileManager({ workspaceId, userRole }: FileManagerProps)
         workspaceId={workspaceId}
         parentId={currentFolderId}
       />
+      {itemToDelete && (
+        <ConfirmationModal
+          isOpen={isConfirmModalOpen}
+          onClose={() => setConfirmModalOpen(false)}
+          onConfirm={handleConfirmDelete}
+          title={`Delete ${itemToDelete.type}`}
+          message={`Are you sure you want to delete "${itemToDelete.name}"? ${itemToDelete.type === 'folder' ? 'All of its contents will also be permanently deleted.' : ''} This action cannot be undone.`}
+          confirmText="Delete"
+          isLoading={isDeleting}
+        />
+      )}
     </>
   )
 }
