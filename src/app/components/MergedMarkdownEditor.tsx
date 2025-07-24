@@ -25,7 +25,7 @@ import {
   LucideIcon,
   Moon,
   Sun,
-  Palette,
+  Palette, MessageSquare,
   Play,
 } from "lucide-react";
 import { EditorState } from "@codemirror/state";
@@ -39,6 +39,11 @@ import { Subscript as MathIcon } from "lucide-react";
 import * as Y from "yjs";
 import { yCollab, yUndoManagerKeymap } from "y-codemirror.next";
 import YPartyKitProvider from "y-partykit/provider";
+
+// --- COMMENTING SYSTEM IMPORTS ---
+import CommentButton from './CommentButton';
+import CommentSidebar, { type CommentPosition, type CommentData } from './CommentSidebar';
+import { useCommentSelection } from '@/hooks/useCommentSelection';
 
 interface MarkdownEditorProps {
   documentId?: string;
@@ -89,12 +94,184 @@ const MergedMarkdownEditor: React.FC<MarkdownEditorProps> = ({
   const [compiledContent, setCompiledContent] = useState<string>("");
   const [isCompiling, setIsCompiling] = useState<boolean>(false);
 
+  // --- COMMENTING SYSTEM STATE ---
+  const [isCommentSidebarOpen, setIsCommentSidebarOpen] = useState<boolean>(false);
+  const [selectedTextForComment, setSelectedTextForComment] = useState<{
+    text: string;
+    position: CommentPosition;
+  } | undefined>(undefined);
+  const [activeCommentId, setActiveCommentId] = useState<string | undefined>(undefined);
+
   const editorRef = useRef<HTMLDivElement>(null);
   const editorViewRef = useRef<EditorView | null>(null);
   const previewRef = useRef<HTMLDivElement>(null);
   const titleRef = useRef<HTMLInputElement>(null);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const themePickerRef = useRef<HTMLDivElement>(null);
+  const commentWebSocketRef = useRef<WebSocket | null>(null);
+
+  // --- COMMENTING SYSTEM HOOKS ---
+  const [comments, setComments] = useState<CommentData[]>([]);
+  const [commentsLoading, setCommentsLoading] = useState(false);
+
+  const {
+    isCommentButtonVisible,
+    selectedText,
+    buttonPosition,
+    selectionPosition,
+    dismissCommentButton,
+  } = useCommentSelection(editorRef as React.RefObject<HTMLElement>, !!user && !!documentId);
+
+  // Handle adding a comment
+  const handleAddComment = useCallback((text: string, position: CommentPosition) => {
+    console.log('MergedMarkdownEditor: handleAddComment called with:', { text, position });
+    setSelectedTextForComment({ text, position });
+    setIsCommentSidebarOpen(true);
+    dismissCommentButton();
+  }, [dismissCommentButton]);
+
+  // Handle comment creation callback
+  const handleCommentCreate = useCallback((comment: CommentData) => {
+    console.log('Comment created:', comment);
+    
+    // Add to local state
+    setComments(prev => [...prev, comment]);
+    
+    // Broadcast to other users
+    if (commentWebSocketRef.current && commentWebSocketRef.current.readyState === WebSocket.OPEN) {
+      commentWebSocketRef.current.send(JSON.stringify({
+        type: 'comment_added',
+        comment
+      }));
+    }
+    
+    // Clear selected text after comment is created
+    setSelectedTextForComment(undefined);
+  }, []);
+
+  // Handle comment update callback
+  const handleCommentUpdate = useCallback((comment: CommentData) => {
+    console.log('Comment updated:', comment);
+    
+    // Update local state
+    setComments(prev => 
+      prev.map(c => c._id === comment._id ? comment : c)
+    );
+    
+    // Broadcast to other users
+    if (commentWebSocketRef.current && commentWebSocketRef.current.readyState === WebSocket.OPEN) {
+      commentWebSocketRef.current.send(JSON.stringify({
+        type: 'comment_updated',
+        comment
+      }));
+    }
+  }, []);
+
+  // Handle comment delete callback
+  const handleCommentDelete = useCallback((commentId: string) => {
+    console.log('Comment deleted:', commentId);
+    
+    // Remove from local state
+    setComments(prev => prev.filter(c => c._id !== commentId));
+    
+    // Broadcast to other users
+    if (commentWebSocketRef.current && commentWebSocketRef.current.readyState === WebSocket.OPEN) {
+      commentWebSocketRef.current.send(JSON.stringify({
+        type: 'comment_deleted',
+        commentId
+      }));
+    }
+  }, []);
+
+  // Handle closing comment sidebar
+  const handleCloseCommentSidebar = useCallback(() => {
+    setIsCommentSidebarOpen(false);
+    setSelectedTextForComment(undefined);
+    setActiveCommentId(undefined);
+  }, []);
+
+  // Fetch comments for the document
+  const fetchComments = useCallback(async () => {
+    if (!documentId) return;
+    
+    setCommentsLoading(true);
+    try {
+      const response = await fetch(`/api/comments?noteId=${documentId}&includeResolved=true`);
+      if (response.ok) {
+        const commentsData = await response.json();
+        setComments(commentsData);
+      }
+    } catch (error) {
+      console.error('Error fetching comments:', error);
+    } finally {
+      setCommentsLoading(false);
+    }
+  }, [documentId]);
+
+  // Load comments when document ID changes
+  useEffect(() => {
+    fetchComments();
+  }, [fetchComments]);
+
+  // Real-time comment synchronization
+  useEffect(() => {
+    if (!documentId) return;
+
+    const commentRoomId = `comments-${documentId}`;
+    const partyKitHost = process.env.NEXT_PUBLIC_PARTYKIT_HOST || 'localhost:1999';
+    const wsUrl = `ws://${partyKitHost}/parties/main/${commentRoomId}`;
+    
+    const ws = new WebSocket(wsUrl);
+    commentWebSocketRef.current = ws;
+
+    ws.onopen = () => {
+      console.log('Connected to comment room:', commentRoomId);
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const message = JSON.parse(event.data);
+        
+        switch (message.type) {
+          case 'comment_added':
+            console.log('Real-time comment added:', message.comment);
+            setComments(prev => [...prev, message.comment]);
+            break;
+          case 'comment_updated':
+            console.log('Real-time comment updated:', message.comment);
+            setComments(prev => 
+              prev.map(comment => 
+                comment._id === message.comment._id ? message.comment : comment
+              )
+            );
+            break;
+          case 'comment_deleted':
+            console.log('Real-time comment deleted:', message.commentId);
+            setComments(prev => 
+              prev.filter(comment => comment._id !== message.commentId)
+            );
+            break;
+        }
+      } catch (error) {
+        console.error('Error handling real-time comment message:', error);
+      }
+    };
+
+    ws.onclose = () => {
+      console.log('Disconnected from comment room:', commentRoomId);
+    };
+
+    ws.onerror = (error) => {
+      console.error('Comment WebSocket error:', error);
+    };
+
+    return () => {
+      if (commentWebSocketRef.current) {
+        commentWebSocketRef.current.close();
+        commentWebSocketRef.current = null;
+      }
+    };
+  }, [documentId]);
   const scrollSyncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const mathJaxConfig = {
@@ -1094,6 +1271,32 @@ const MergedMarkdownEditor: React.FC<MarkdownEditorProps> = ({
                   </div>
                 )}
               </div>
+              
+              {/* Comment Toggle Button */}
+              <button
+                onClick={() => setIsCommentSidebarOpen(!isCommentSidebarOpen)}
+                className={`flex items-center px-3 py-2 text-sm rounded-lg transition-colors ${
+                  isCommentSidebarOpen
+                    ? darkMode 
+                      ? 'bg-blue-900 text-blue-200' 
+                      : 'bg-blue-100 text-blue-700'
+                    : darkMode 
+                      ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' 
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+                title="Toggle Comments"
+              >
+                <MessageSquare className="w-4 h-4 mr-2" />
+                Comments
+                {comments.length > 0 && (
+                  <span className={`ml-2 px-2 py-0.5 text-xs rounded-full ${
+                    darkMode ? 'bg-gray-600 text-gray-300' : 'bg-gray-200 text-gray-600'
+                  }`}>
+                    {comments.length}
+                  </span>
+                )}
+              </button>
+              
               <button
                 onClick={() => saveDocument()}
                 className={`flex items-center px-3 py-2 text-sm rounded-lg transition-colors ${
@@ -1779,6 +1982,30 @@ const MergedMarkdownEditor: React.FC<MarkdownEditorProps> = ({
           --tw-prose-td-borders: ${darkMode ? "#4a5568" : "#e5e7eb"};
         }
       `}</style>
+
+      {/* Comment Button - appears when text is selected */}
+      <CommentButton
+        isVisible={isCommentButtonVisible}
+        position={buttonPosition}
+        selectedText={selectedText}
+        selectionPosition={selectionPosition}
+        onAddComment={handleAddComment}
+        onDismiss={dismissCommentButton}
+      />
+
+      {/* Comment Sidebar */}
+      <CommentSidebar
+        isOpen={isCommentSidebarOpen}
+        onClose={handleCloseCommentSidebar}
+        documentId={documentId}
+        selectedText={selectedTextForComment}
+        comments={comments}
+        onCommentCreate={handleCommentCreate}
+        onCommentUpdate={handleCommentUpdate}
+        onCommentDelete={handleCommentDelete}
+        onRefresh={fetchComments}
+        darkMode={darkMode}
+      />
     </MathJaxContext>
   );
 };
