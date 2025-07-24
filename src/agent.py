@@ -1,4 +1,5 @@
 import os
+import fitz  # PyMuPDF
 import traceback
 import logging
 from fastapi import FastAPI, UploadFile, Form
@@ -14,7 +15,7 @@ from agent_utils import (
 from dotenv import load_dotenv
 from typing import TypedDict, List, Any
 from langchain.chat_models import init_chat_model
-from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 
 # Config
@@ -29,13 +30,11 @@ memory = MemorySaver()
 os.environ["GOOGLE_API_KEY"] = "AIzaSyChma_wxOBTR-ANTaKglvVHDk0rAwBVKmw"
 client = motor.motor_asyncio.AsyncIOMotorClient("mongodb+srv://osamanadeem:LpeGZf9uCGpZWHFy@cse299.sfplar8.mongodb.net/?retryWrites=true&w=majority&appName=cse299")
 db = client["markflow"]  # Add this line to define 'db'
-
-async def get_memory():
-    return AsyncMongoDBSaver(
-        database="markflow",  # ✅ must be string
-        collection="checkpoints",
-        client=client
-    )
+memory = AsyncMongoDBSaver(
+    database="markflow",  # ✅ must be string
+    collection="checkpoints",
+    client=client
+)
 # Init
 app = FastAPI()
 # Note: Ensure your environment is configured to point to the Mistral model endpoint.

@@ -9,8 +9,8 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import ChatLauncher from '@/app/components/ChatLauncher';
 
 // Dynamically import the editor component with SSR turned off
-const EditorWithSidebar = dynamic(
-  () => import('@/app/components/EditorWithSidebar'),
+const CollaborativeEditor = dynamic(
+  () => import('@/app/components/MergedMarkdownEditor'),
   {
     ssr: false,
     loading: () => (
@@ -80,7 +80,7 @@ export default function EditorPage() {
   // Render the collaborative editor for new documents
   return (
     <>
-      <EditorWithSidebar
+      <CollaborativeEditor
         workspaceId={workspaceId || undefined}
         doc={doc}
         provider={provider}

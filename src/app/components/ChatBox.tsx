@@ -2,197 +2,176 @@
 
 import React, { useState, useRef, useEffect } from 'react'
 import { useUser } from '@clerk/nextjs'
-import { 
-  FiSend, 
-  FiPaperclip, 
-  FiSmile,
-  FiMic,
-  FiX,
-  FiCheck,
-  FiClock,
-  FiUsers
-} from 'react-icons/fi'
-import { HiOutlineDotsHorizontal, HiOutlineHashtag } from 'react-icons/hi'
-import { format } from 'date-fns'
 
 export default function ChatBox({ channel }: { channel: { id: string; name: string } }) {
-  const [messages, setMessages] = useState<{ 
-    sender: { firstName: string }; 
-    text: string; 
-    timestamp: string; 
-    fileUrl?: string; 
-    fileName?: string 
-  }[]>([])
+  const [messages, setMessages] = useState<{ sender: { firstName: string }; text: string; timestamp: string; fileUrl?: string, fileName?: string }[]>([])
   const [input, setInput] = useState('')
   const [file, setFile] = useState<File | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const containerRef = useRef<HTMLDivElement>(null)
-  const { user } = useUser()
-  const firstName = user?.firstName
-  const wsRef = useRef<WebSocket | null>(null)
-  const [typingUsers, setTypingUsers] = useState<string[]>([])
-  const [activeUsers, setActiveUsers] = useState<string[]>([])
-  const userId = user?.id ?? 'anonymous'
-  const [autoScroll, setAutoScroll] = useState(true)
-  const typingTimeout = useRef<NodeJS.Timeout | null>(null)
+  const { user } = useUser();
+  const firstName = user?.firstName;
+  const wsRef = useRef<WebSocket | null>(null);
+  const [typingUsers, setTypingUsers] = useState<string[]>([]);
+  const displayName = user?.firstName ?? 'Anonymous';
+  const [activeUsers, setActiveUsers] = useState<string[]>([]);
+  const userId = user?.id ?? 'anonymous';
 
-  // WebSocket connection
+  useEffect(() => {
+    console.log("Typing users:", typingUsers);
+  }, [typingUsers]);
+
   useEffect(() => { 
-    if (!user) return
-
-    const displayName = user?.firstName ?? 'Anonymous'
+    if (!user) return;
+    const displayName = user?.firstName ?? 'Anonymous';
+    console.log(`Connecting to chat room with display name: ${displayName}`);
     const ws = new WebSocket(
-      `wss://markflow-collaborative-editor.md-iftikher.partykit.dev/parties/chat/${channel.id}?user=${encodeURIComponent(displayName)}&id=${userId}`
-    )
-    wsRef.current = ws
+      `ws://localhost:1999/parties/chat/${channel.id}?user=${encodeURIComponent(displayName)}&id=${userId}`
+    );
+    wsRef.current = ws;
 
     ws.onopen = () => {
       ws.send(JSON.stringify({
         type: 'init',
         userId: user?.id ?? 'anonymous',
         userName: user?.firstName ?? 'Anonymous'
-      }))
-    }
+      }));
+    };
 
     ws.onmessage = (event) => {
-      let data: any
-      
+      let data: any;
+      //ws.send(JSON.stringify({ type: "init", userId: displayName }));
+
       if (typeof event.data === "string") {
-        data = JSON.parse(event.data)
+      // It's already a string — parse directly
+        data = JSON.parse(event.data);
       } else if (event.data instanceof Blob) {
-        const reader = new FileReader()
+      // Convert Blob to text, then parse
+        const reader = new FileReader();
         reader.onload = () => {
-          try {
-            const text = reader.result as string
-            data = JSON.parse(text)
-          } catch (e) {
-            console.error("Failed to parse message:", e)
-          }
+        try {
+          const text = reader.result as string;
+          data = JSON.parse(text);
+        } catch (e) {
+          console.error("Failed to parse message:", e);
         }
-        reader.readAsText(event.data)
-      } else {
-        console.warn("Received unknown message type", event.data)
-      }
+      };
+      reader.readAsText(event.data);
+    } else {
+      console.warn("Received unknown message type", event.data);
+    }
+
 
       switch (data.type) {
         case 'chat':
-          // Ensure proper message structure
-          if (data.userName && data.text) {
-            setMessages((prev) => [...prev, {
-              sender: { firstName: data.userName },
-              text: data.text,
-              timestamp: new Date(data.timestamp || Date.now()).toISOString()
-            }])
-          }
-          break
+          setMessages((prev) => [...prev, data]);
+          break;
+
         case 'typing':
           setTypingUsers((prev) =>
             data.isTyping
               ? [...new Set([...prev, data.userId])]
               : prev.filter((id) => id !== data.userId)
-          )
-          break
+          );
+          break;
+
         case 'presence':
           setActiveUsers((prev) => {
             if (data.status === 'joined') {
-              return [...new Set([...prev, data.userName])]
+              return [...new Set([...prev, data.userName])];
             } else if (data.status === 'left') {
-              return prev.filter((name) => name !== data.userName)
+              return prev.filter((name) => name !== data.userName);
             }
-            return prev
-          })
-          break
-        case 'activeUsers':
-          if (Array.isArray(data.users)) {
-            setActiveUsers(data.users)
-          }
-          break
+            return prev;
+          });
+          break;
       }
-    }
+    };
+
+    
 
     ws.onclose = () => {
-      console.log('WebSocket closed')
-    }
+      console.log('WebSocket closed');
+    };
 
     return () => {
-      ws.close()
-    }
-  }, [channel.id, user])
+      ws.close();
+    };
+  }, [channel.id]);
 
-  // Fetch messages
+  const typingTimeout = useRef<NodeJS.Timeout | null>(null);
+
+    const handleTyping = () => {
+      if (!wsRef.current) return;
+
+      wsRef.current.send(JSON.stringify({ type: 'typing', isTyping: true }));
+
+      if (typingTimeout.current) clearTimeout(typingTimeout.current);
+
+      typingTimeout.current = setTimeout(() => {
+        wsRef.current?.send(JSON.stringify({ type: 'typing', isTyping: false }));
+      }, 2000); // 2s after last keystroke
+    };
+
+
+  // Load messages from the backend when channel changes
   useEffect(() => {
-    const fetchMessages = async () => {
-      try {
-        const res = await fetch(`/api/chat/workspace?workspaceId=${channel.id}`)
-        const data = await res.json()
-        if (Array.isArray(data)) {
-          // Filter out malformed messages
-          const validMessages = data.filter(msg => 
-            msg && 
-            msg.sender && 
-            typeof msg.sender.firstName === 'string' && 
-            typeof msg.text === 'string'
-          )
-          setMessages(validMessages)
-        }
-      } catch (err) {
-        console.error('Failed to fetch workspace chat:', err)
-      }
+  let interval: NodeJS.Timeout;
+
+  const fetchMessages = async () => {
+    try {
+      const res = await fetch(`/api/chat/workspace?workspaceId=${channel.id}`);
+      const data = await res.json();
+      if (Array.isArray(data)) setMessages(data);
+    } catch (err) {
+      console.error('Failed to fetch workspace chat:', err);
     }
+  };
 
-    fetchMessages()
-    const interval = setInterval(fetchMessages, 50000)
-    return () => clearInterval(interval)
-  }, [channel.id])
+  fetchMessages(); // initial load
 
-  // Auto-scroll logic
-  useEffect(() => {
-    const container = containerRef.current
-    if (!container) return
+  interval = setInterval(fetchMessages, 500000); // poll every 50 seconds
 
-    const handleScroll = () => {
-      const isAtBottom =
-        container.scrollHeight - container.scrollTop - container.clientHeight < 100
-      setAutoScroll(isAtBottom)
-    }
+  return () => clearInterval(interval); // cleanup on unmount
+  }, [channel.id]);
 
-    container.addEventListener('scroll', handleScroll)
-    return () => container.removeEventListener('scroll', handleScroll)
-  }, [])
+const [autoScroll, setAutoScroll] = useState(true);
+const containerRef = useRef<HTMLDivElement | null>(null);
 
-  useEffect(() => {
-    if (autoScroll) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-    }
-  }, [messages, autoScroll])
+// 🟡 Track whether user is near the bottom
+useEffect(() => {
+  const container = containerRef.current;
+  if (!container) return;
 
-  // Typing indicator
-  const handleTyping = () => {
-    if (!wsRef.current) return
+  const handleScroll = () => {
+    const isAtBottom =
+      container.scrollHeight - container.scrollTop - container.clientHeight < 100;
+    setAutoScroll(isAtBottom);
+  };
 
-    wsRef.current.send(JSON.stringify({ type: 'typing', isTyping: true }))
+  container.addEventListener('scroll', handleScroll);
+  return () => container.removeEventListener('scroll', handleScroll);
+}, []);
 
-    if (typingTimeout.current) clearTimeout(typingTimeout.current)
-
-    typingTimeout.current = setTimeout(() => {
-      wsRef.current?.send(JSON.stringify({ type: 'typing', isTyping: false }))
-    }, 2000)
+useEffect(() => {
+  if (autoScroll) {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }
+}, [messages, autoScroll]);
 
-  // Extract OpenReview URL
-  const extractURL = (input: string) => {
-    const match = input.match(/https:\/\/openreview\.net\/forum\?id=[\w-]+/)
-    return match ? match[0] : null
-  }
 
-  // Extract query for agent
-  const extractQuery = (input: string) => {
-    return input.replace(/^@Agent\s*/, '').replace(/https:\/\/openreview\.net\/forum\?id=[\w-]+/, '').trim()
-  }
+const extractURL = (input: string) => {
+  const match = input.match(/https:\/\/openreview\.net\/forum\?id=[\w-]+/);
+  return match ? match[0] : null;
+};
 
-  // Send message
+const extractQuery = (input: string) => {
+  // Remove '@Agent' and URL to isolate query
+  return input.replace(/^@Agent\s*/, '').replace(/https:\/\/openreview\.net\/forum\?id=[\w-]+/, '').trim();
+};
+
   const handleSend = async () => {
-    if (!input.trim()) return
+    if (!input.trim()) return;
+
 
     const newMessage = {
       sender: { firstName: 'You' },
@@ -202,250 +181,156 @@ export default function ChatBox({ channel }: { channel: { id: string; name: stri
       fileName: file ? file.name : undefined
     }
 
-    // Send message through WebSocket for real-time delivery
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({
-        type: 'chat',
-        text: input
-      }));
-    }
-
+    //setMessages((prev) => [...prev, newMessage])
     setInput('')
     setFile(null)
 
-    const formData = new FormData()
-    formData.append('workspaceId', channel.id)
-    formData.append('message', input)
-    if (file) formData.append('file', file)
+    const formData = new FormData();
+    formData.append('workspaceId', channel.id);
+    formData.append('message', input);
+    if (file) formData.append('file', file);
 
     try {
-      await fetch('/api/chat/send', {
+      const res = await fetch('/api/chat/send', {
         method: 'POST',
         body: formData,
       })
+      const data = await res.json()
+
+      console.log(channel.id, input)
     } catch (error) {
       console.error('Failed to send message:', error)
     }
 
-    // Agent interaction
     if (input.trim().startsWith("@Agent")) {
-      const openreview_url = extractURL(input)
-      const query = extractQuery(input)
+      const openreview_url = extractURL(input); // Extract link
+      const query = extractQuery(input); // Extract query text
 
-      const agentFormData = new FormData()
-      agentFormData.append("openreview_url", openreview_url ? openreview_url : '')
-      agentFormData.append("query", query)
-      agentFormData.append("pdf", file ? file : '')
-      
+
+      const agentFormData = new FormData();
+      agentFormData.append("openreview_url", openreview_url ? openreview_url : '');
+      agentFormData.append("query", query);
+      agentFormData.append("pdf", file ? file : '');
+      let agentReply = '';
+
       try {
         const res = await fetch("/api/agent/handle-task", {
           method: "POST",
           body: agentFormData,
-        })
-        const data = await res.json()
-        
-        // Send agent reply through WebSocket for real-time delivery
-        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-          wsRef.current.send(JSON.stringify({
-            type: 'chat',
-            text: data.response
-          }));
-        }
-        
+        });
+        const data = await res.json();
+        console.log("Agent response:", data);
+        agentReply = data.response || 'No response from agent';
         setMessages((prev) => [
-          ...prev, 
-          newMessage,
+          ...prev, newMessage,
           {
             sender: { firstName: "Agent" },
             text: data.response,
             timestamp: new Date().toISOString(),
           },
-        ])
+        ]);
+      } catch (err) {
+        console.error("Agent fetch error:", err);
+      }
 
-        const agentResponse = new FormData()
-        agentResponse.append('workspaceId', channel.id)
-        agentResponse.append('message', data.response)
+      const agentResponse = new FormData();
+      agentResponse.append('workspaceId', channel.id);
+      agentResponse.append('message', agentReply);
 
-        await fetch('/api/chat/send', {
+      try {
+        const res = await fetch('/api/chat/send', {
           method: 'POST',
           body: agentResponse,
         })
-      } catch (err) {
-        console.error("Agent fetch error:", err)
+
+        console.log(channel.id, input)
+      } catch (error) {
+        console.error('Failed to send message:', error)
       }
+
+      setInput("");
+      setFile(null);
     }
-  }
 
-  // File upload handler
+
+  }
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selected = e.target.files?.[0]
-    if (!selected) return
-    setFile(selected)
+    const selected = e.target.files?.[0];
+    if (!selected) return;
+    setFile(selected); // Just store the file
+  };
+
+  useEffect(() => {
+    console.log('Messages:', messages);
+  }, [messages]);
+
+  // Simple animated dots for typing indicator
+  function TypingDots() {
+    return (
+      <span>
+        <span className="animate-bounce">.</span>
+        <span className="animate-bounce" style={{ animationDelay: '0.2s' }}>.</span>
+        <span className="animate-bounce" style={{ animationDelay: '0.5s' }}>.</span>
+      </span>
+    );
   }
-
-  // Typing indicator component
-  const TypingIndicator = () => (
-    <div className="flex items-center px-4 py-2">
-      <div className="flex space-x-1 px-3 py-2 bg-gray-100 rounded-full">
-        <div className="w-2 h-2 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '0ms' }} />
-        <div className="w-2 h-2 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '150ms' }} />
-        <div className="w-2 h-2 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '300ms' }} />
-      </div>
-    </div>
-  )
-
-  // Message status indicator
-  const MessageStatus = ({ status }: { status: 'sent' | 'delivered' | 'read' }) => (
-    <span className="ml-1 text-xs text-gray-400 inline-flex items-center">
-      {status === 'sent' && <FiClock size={12} />}
-      {status === 'delivered' && <FiCheck size={12} />}
-      {status === 'read' && <><FiCheck size={12} className="text-blue-500" /><FiCheck size={12} className="-ml-1 text-blue-500" /></>}
-    </span>
-  )
 
   return (
-    <div className="flex flex-col h-full bg-white">
-      {/* Chat header */}
-      <div className="px-5 py-3 border-b border-gray-200 flex items-center justify-between bg-white sticky top-0 z-10">
-        <div className="flex items-center space-x-3">
-          <HiOutlineHashtag className="text-gray-500 text-xl" />
-          <h3 className="font-medium text-gray-800">{channel.name}</h3>
-          <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span>
-        </div>
-        <div className="flex items-center space-x-2">
-          <button className="p-1.5 rounded-full hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-colors">
-            <FiUsers size={18} />
-          </button>
-          <button className="p-1.5 rounded-full hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-colors">
-            <HiOutlineDotsHorizontal size={18} />
-          </button>
-        </div>
-      </div>
-
-      {/* Active users bar */}
+    <div className="flex flex-col h-full max-h-screen w-full">
       {activeUsers.length > 0 && (
-        <div className="px-4 py-1.5 text-sm text-gray-600 bg-blue-50 border-b border-gray-200 flex items-center">
-          <div className="flex -space-x-2 mr-2">
-            {activeUsers.slice(0, 3).map((user, i) => (
-              <div key={i} className="w-5 h-5 rounded-full bg-blue-200 border-2 border-white flex items-center justify-center text-xs font-medium">
-                {user.charAt(0)}
-              </div>
-            ))}
-          </div>
-          <span className="truncate">
-            {activeUsers.length > 3 
-              ? `${activeUsers.slice(0, 3).join(', ')} +${activeUsers.length - 3} more` 
-              : activeUsers.join(', ')}
-          </span>
-        </div>
-      )}
-
-      {/* Messages container */}
-      <div 
-        ref={containerRef}
-        className="flex-1 overflow-y-auto px-4 py-3 space-y-4 bg-gradient-to-b from-white to-gray-50"
-      >
-        {messages.map((msg, idx) => {
-          const isYou = msg.sender?.firstName === 'You' || msg.sender?.firstName === firstName
-          const isAgent = msg.sender?.firstName === 'Agent'
-          const isConsecutive = idx > 0 && messages[idx-1]?.sender?.firstName === msg.sender?.firstName
-          const showHeader = !isConsecutive || isAgent
-
-          // Skip rendering if message doesn't have proper structure
-          if (!msg.sender?.firstName || !msg.text) {
-            return null
-          }
-
-          return (
-            <div 
-              key={idx} 
-              className={`flex ${isYou ? 'justify-end' : 'justify-start'} ${showHeader ? 'mt-3' : 'mt-1'}`}
-            >
-              <div className={`max-w-[80%] flex ${isYou ? 'flex-row-reverse' : ''}`}>
-                {!isYou && showHeader && (
-                  <div className={`w-8 h-8 rounded-full mr-2 flex-shrink-0 flex items-center justify-center font-medium ${
-                    isAgent ? 'bg-purple-100 text-purple-600' : 'bg-gray-200 text-gray-600'
-                  }`}>
-                    {isAgent ? 'AI' : msg.sender.firstName.charAt(0)}
-                  </div>
-                )}
-                
-                <div>
-                  {showHeader && !isYou && (
-                    <div className={`text-xs font-medium mb-1 ${isAgent ? 'text-purple-600' : 'text-gray-600'}`}>
-                      {msg.sender.firstName}
-                    </div>
-                  )}
-                  
-                  <div className="flex flex-col space-y-1">
-                    {msg.fileUrl && (
-                      <div className={`rounded-lg overflow-hidden border ${isYou ? 'border-blue-100' : 'border-gray-200'}`}>
-                        <a
-                          href={msg.fileUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="block"
-                        >
-                          <div className="bg-gray-50 p-3 flex items-center">
-                            <div className="w-10 h-10 rounded bg-blue-50 flex items-center justify-center text-blue-500 mr-3">
-                              <FiPaperclip size={18} />
-                            </div>
-                            <div className="truncate">
-                              <p className="text-sm font-medium text-gray-800 truncate">
-                                {msg.fileName || 'Download File'}
-                              </p>
-                              <p className="text-xs text-gray-500">Click to view</p>
-                            </div>
-                          </div>
-                        </a>
-                      </div>
-                    )}
-                    
-                    {msg.text?.trim() && (
-                      <div 
-                        className={`px-4 py-2 rounded-2xl ${isYou 
-                          ? 'bg-blue-500 text-white rounded-br-none' 
-                          : isAgent 
-                            ? 'bg-purple-100 text-gray-800 rounded-bl-none' 
-                            : 'bg-gray-100 text-gray-800 rounded-bl-none'
-                        }`}
-                      >
-                        <p className="whitespace-pre-wrap break-words">{msg.text}</p>
-                        <div className={`flex items-center justify-end mt-1 space-x-1 text-xs ${isYou ? 'text-blue-200' : 'text-gray-500'}`}>
-                          {format(new Date(msg.timestamp), 'h:mm a')}
-                          {isYou && <MessageStatus status={idx % 3 === 0 ? 'read' : idx % 2 === 0 ? 'delivered' : 'sent'} />}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )
-        }).filter(Boolean)}
-
-        {typingUsers.length > 0 && <TypingIndicator />}
-        <div ref={messagesEndRef} />
-      </div>
-
-      {/* Input area */}
-      <div className="p-3 border-t bg-white sticky bottom-0">
-        {file && (
-          <div className="flex items-center justify-between px-3 py-2 mb-2 bg-blue-50 rounded-lg">
-            <div className="flex items-center truncate">
-              <FiPaperclip className="text-blue-500 mr-2 flex-shrink-0" />
-              <span className="truncate text-sm font-medium">{file.name}</span>
-            </div>
-            <button 
-              onClick={() => setFile(null)}
-              className="text-gray-500 hover:text-gray-700"
-            >
-              <FiX size={16} />
-            </button>
+          <div className="px-4 py-2 text-sm text-gray-700 bg-gray-100 border-b border-gray-300">
+            <strong>Active:</strong> {activeUsers.join(", ")}
           </div>
         )}
-        
-        <div className="flex items-center space-x-2">
+      {/* Message List */}
+      <div ref={containerRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-3 bg-gray-50">
+        {messages.map((msg, idx) => {
+          const isYou = msg.sender.firstName === 'You' || msg.sender.firstName === firstName;
+          return (
+            <div key={idx} className={`flex flex-col ${isYou ? 'items-end' : 'items-start'}`}>
+              <span className="text-xs text-gray-500 mb-1">{msg.sender.firstName}</span>
+              {msg.fileUrl && (
+                <a
+                  href={msg.fileUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-600 underline mb-1"
+                  download={msg.fileName}
+                >
+                  {msg.fileName || 'Download File'} {/* ✅ fallback to 'Download File' */}
+                </a>
+              )}
+              {msg.text?.trim() && (
+                <span
+                  className={`inline-block px-4 py-2 rounded-2xl max-w-xs break-words ${
+                    isYou ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-900'
+                  }`}
+                >
+                  {msg.text}
+                </span>
+              )}
+            </div>
+          )
+        })}
+        {typingUsers.length > 0 && (
+          <div className="flex flex-col items-start animate-pulse">
+            <span
+              className="inline-block px-4 py-2 rounded-2xl max-w-xs break-words bg-gray-300 text-gray-700 text-base"
+            >
+              <TypingDots />
+            </span>
+          </div>
+        )}
+        <div ref={messagesEndRef} />
+      </div>
+      {/* Input Bar */}
+      <div className="p-3 border-t bg-white flex flex-col gap-2 shrink-0 w-full">
+        {file && (
+          <div className="text-sm text-gray-600 px-2">
+            📎 <strong>{file.name}</strong> selected
+          </div>
+        )}
+        <div className="flex items-center gap-2">
           <input
             type="file"
             id="file-upload"
@@ -453,38 +338,25 @@ export default function ChatBox({ channel }: { channel: { id: string; name: stri
             accept="image/*,application/pdf"
             onChange={handleFileUpload}
           />
-          <label htmlFor="file-upload" className="p-2 rounded-full hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-colors cursor-pointer">
-            <FiPaperclip size={18} />
+          <label htmlFor="file-upload" className="cursor-pointer text-blue-500 hover:text-blue-700 text-xl">
+            📎
           </label>
-          <button className="p-2 rounded-full hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-colors">
-            <FiSmile size={18} />
-          </button>
-          
-          <div className="flex-1 relative">
-            <input
-              className="w-full rounded-full border-0 bg-gray-100 px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-300 pl-12 pr-16"
-              type="text"
-              placeholder={`Message #${channel.name}`}
-              value={input}
-              onChange={(e) => {
-                setInput(e.target.value)
-                handleTyping()
-              }}
-              onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-            />
-            <div className="absolute right-3 top-1/2 transform -translate-y-1/2 flex items-center space-x-1">
-              <button className="p-1 text-gray-400 hover:text-gray-600">
-                <FiMic size={16} />
-              </button>
-            </div>
-          </div>
-          
+          <input
+            className="flex-1 rounded-full border px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
+            type="text"
+            placeholder={`Message #${channel.name}`}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+             handleTyping();
+             if (e.key === 'Enter') handleSend();
+          }}
+          />
           <button
-            className={`p-2 rounded-full text-white transition-colors ${input.trim() ? 'bg-blue-500 hover:bg-blue-600' : 'bg-gray-300 cursor-not-allowed'}`}
+            className="bg-blue-500 text-white px-4 py-2 rounded-full font-semibold hover:bg-blue-600 transition min-w-[64px]"
             onClick={handleSend}
-            disabled={!input.trim()}
           >
-            <FiSend size={18} />
+            Send
           </button>
         </div>
       </div>
