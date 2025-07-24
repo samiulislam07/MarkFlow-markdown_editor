@@ -1,6 +1,10 @@
 
 
+<<<<<<< HEAD
 import fitz  # PyMuPDF
+=======
+import fitz 
+>>>>>>> parent of 7afb416 (agent bug fixed agent is working)
 from bs4 import BeautifulSoup
 from langchain_community.embeddings import HuggingFaceEmbeddings
 #from langchain.vectorstores import FAISS
