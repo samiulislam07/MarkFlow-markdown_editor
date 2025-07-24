@@ -20,6 +20,60 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const workspaceId = searchParams.get('workspaceId');
     const folderId = searchParams.get('folderId');
+    const isArchived = searchParams.get('archived') === 'true';
+    const search = searchParams.get('search');
+    const page = parseInt(searchParams.get('page') || '1');
+    const limit = parseInt(searchParams.get('limit') || '20');
+
+    // Build query
+    const query: any = { isArchived };
+    
+    if (workspaceId) {
+      query.workspace = workspaceId;
+    }
+    
+    if (folderId) {
+      query.folder = folderId;
+    } else if (folderId === null) {
+      query.folder = null;
+    }
+
+    // Add search functionality
+    if (search) {
+      query.$text = { $search: search };
+    }
+
+    // Calculate skip for pagination
+    const skip = (page - 1) * limit;
+
+    // Fetch notes with simplified population to avoid schema errors
+    const notes = await Note.find(query)
+      .populate('author', 'name email avatar')
+      .populate('lastEditedBy', 'name email avatar')
+      // .populate('tags', 'name color')
+      // .populate('folder', 'name color icon')
+      .populate('workspace', 'name')
+      .sort(search ? { score: { $meta: 'textScore' } } : { updatedAt: -1 })
+      .skip(skip)
+      .limit(limit);
+
+    const total = await Note.countDocuments(query);
+
+    return NextResponse.json({
+      notes,
+      pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit)
+      }
+    });
+
+  } catch (error) {
+    console.error('Error fetching notes:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}
 
     if (!workspaceId) {
       return NextResponse.json({ error: 'Workspace ID is required' }, { status: 400 });
