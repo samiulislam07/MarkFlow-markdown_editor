@@ -5,6 +5,7 @@ import File from '@/lib/mongodb/models/File';
 import Folder from '@/lib/mongodb/models/Folder';
 import User from '@/lib/mongodb/models/User';
 import Workspace, { ICollaborator } from '@/lib/mongodb/models/Workspace';
+import supabase from '@/lib/supabase'
 
 // This config is important to prevent Next.js from trying to parse the body as JSON
 export const config = {
@@ -107,11 +108,37 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'You do not have permission to upload files to this workspace.' }, { status: 403 });
     }
 
+    // Construct the file path for Supabase storage (e.g., 'uploads/filename')
+     const fileBlob = file as unknown as Blob;
+    const arrayBuffer = await fileBlob.arrayBuffer();
+    const fileBuffer = Buffer.from(arrayBuffer);
+
+    const filePath = `uploads/${file.name}`;
+
+    // ✅ Upload to Supabase
+    const { error: uploadError } = await supabase.storage
+      .from('uploads')
+      .upload(filePath, fileBuffer, {
+        contentType: file.type,
+        upsert: false,
+      });
+
+    if (uploadError) {
+      console.error('Upload error:', uploadError);
+      return NextResponse.json({ error: 'Failed to upload file to Supabase' }, { status: 500 });
+    }
+
+    // ✅ Get public URL
+    const { data: publicData } = supabase.storage.from('uploads').getPublicUrl(filePath);
+    const publicUrl = publicData?.publicUrl;
+
+
     // --- File Storage Logic ---
     // This is where you would upload the file to a cloud storage provider (e.g., Vercel Blob, AWS S3).
     // For now, we'll continue to use a placeholder URL.
-    const storageUrl = `/uploads/placeholder/${file.name}`;
+    const storageUrl = publicUrl;
 
+    console.log('File uploaded to:', storageUrl);
     const newFile = new (require('@/lib/mongodb/models/File').default)({
       fileName: file.name,
       storageUrl,

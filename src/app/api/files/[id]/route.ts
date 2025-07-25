@@ -5,6 +5,7 @@ import File from '@/lib/mongodb/models/File';
 import User from '@/lib/mongodb/models/User';
 import Workspace, { ICollaborator } from '@/lib/mongodb/models/Workspace';
 import Folder from '@/lib/mongodb/models/Folder';
+import supabase from '@/lib/supabase';
 
 export const dynamic = 'force-dynamic';
 
@@ -43,12 +44,20 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
       return NextResponse.json({ error: 'You do not have permission to delete this file.' }, { status: 403 });
     }
 
-    // IMPORTANT: In a real application, you would also delete the file from your cloud storage here.
-    // For example, with Vercel Blob:
-    // import { del } from '@vercel/blob';
-    // await del(file.storageUrl);
+    if (file.storageUrl) {
+      const filePath = file.storageUrl.split('/storage/v1/object/public/uploads/')[1];
+      if (filePath) {
+        const { error: deleteError } = await supabase.storage
+          .from('uploads')
+          .remove([filePath]);
 
-    // Remove file reference from its parent folder, if it exists
+        if (deleteError) {
+          console.error('Supabase deletion failed:', deleteError.message);
+          return NextResponse.json({ error: 'Failed to delete file from cloud storage' }, { status: 500 });
+        }
+      }
+    }
+
     if (file.folder) {
       await Folder.findByIdAndUpdate(file.folder, { $pull: { files: file._id } });
     }

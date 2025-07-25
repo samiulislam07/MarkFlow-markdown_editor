@@ -7,6 +7,7 @@ import CreateFolderModal from './CreateFolderModal'
 import UploadFileModal from './UploadFileModal'
 import ConfirmationModal from './ConfirmationModal' // Import ConfirmationModal
 import ItemContextMenu from './ItemContextMenu' // Import ItemContextMenu
+import supabase from '@/lib/supabase'
 
 // Define types for our data structures
 type ItemType = 'folder' | 'note' | 'file';

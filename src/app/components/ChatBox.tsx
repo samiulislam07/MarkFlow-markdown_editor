@@ -252,17 +252,18 @@ export default function ChatBox({ channel }: { channel: { id: string; name: stri
           }));
         }
         
-        setMessages((prev) => [
-          ...prev, 
-          newMessage,
-          {
-            sender: { firstName: "Agent" },
-            text: data.response,
-            timestamp: new Date().toISOString(),
-          },
-        ])
+        // setMessages((prev) => [
+        //   ...prev, 
+        //   newMessage,
+        //   {
+        //     sender: { firstName: "Agent" },
+        //     text: data.response,
+        //     timestamp: new Date().toISOString(),
+        //   },
+        // ])
 
         const agentResponse = new FormData()
+        agentResponse.append('sender','Agent')
         agentResponse.append('workspaceId', channel.id)
         agentResponse.append('message', data.response)
 
