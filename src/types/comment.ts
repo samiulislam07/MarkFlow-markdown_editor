@@ -1,63 +1,44 @@
-export interface CommentPosition {
-  line: number;
-  character: number;
-  selection: {
-    start: number;
-    end: number;
-  };
-  selectedText: string;
-}
-
-export interface CommentReaction {
-  user: string;
-  emoji: string;
-}
-
-export interface CommentData {
+// A simplified representation of a user for comments
+export interface CommentAuthor {
   _id: string;
-  note: string;
-  author: {
-    _id: string;
-    firstName?: string;
-    lastName?: string;
-    email: string;
-  };
+  name: string;
+  avatar?: string;
+}
+
+// The structure of a single comment, designed to be stored in Yjs
+export interface CommentData {
+  _id: string; // Unique ID for the comment
+  author: CommentAuthor;
   content: string;
+  createdAt: string; // ISO string format
   isResolved: boolean;
-  parent?: string;
-  mentions: string[];
-  position?: CommentPosition;
-  reactions: CommentReaction[];
-  isEdited: boolean;
-  editedAt?: Date;
-  createdAt: Date;
-  updatedAt: Date;
-  replies?: CommentData[];
+  
+  // --- NEW: For robust anchoring ---
+  anchorStart: string; // JSON string of a Y.js RelativePosition
+  anchorEnd: string;   // JSON string of a Y.js RelativePosition
+
+  parent?: string; // ID of the parent comment if it's a reply
+  selectedText?: string; // The text that was highlighted (for display purposes only)
+  replies?: CommentData[]; // Replies are nested for rendering
+  isEdited?: boolean;
+  editedAt?: string;
 }
 
-export interface CreateCommentRequest {
-  noteId: string;
+// Data required to create a new comment
+export interface CreateCommentData {
   content: string;
-  position?: CommentPosition;
-  parentId?: string;
-  mentions?: string[];
-}
-
-export interface UpdateCommentRequest {
-  content?: string;
-  isResolved?: boolean;
-}
-
-export interface CommentThread {
-  id: string;
-  position: CommentPosition;
-  comments: CommentData[];
-  isResolved: boolean;
-}
-
-export interface CommentUIState {
-  isCommentButtonVisible: boolean;
   selectedText: string;
-  buttonPosition: { x: number; y: number };
-  selectionPosition: CommentPosition | null;
-} 
+  
+  // --- NEW: Pass the editor selection range ---
+  selection: { from: number; to: number };
+}
+
+// Data for the floating comment button
+export interface CommentButtonState {
+  isVisible: boolean;
+  position: { x: number; y: number };
+  selectedText: string;
+
+  // --- NEW: Hold the selection range for creation ---
+  selection: { from: number; to: number };
+}

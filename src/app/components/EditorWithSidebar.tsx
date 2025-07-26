@@ -81,6 +81,7 @@ const EditorWithSidebar: React.FC<EditorWithSidebarProps> = ({
           doc={doc}
           provider={provider}
           onDocumentSaved={handleDocumentSaved}
+          isDocumentSidebarOpen={!sidebarCollapsed}
         />
       </div>
     </div>
