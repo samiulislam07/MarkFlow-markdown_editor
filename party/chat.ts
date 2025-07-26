@@ -27,11 +27,13 @@ const ChatRoom: PartyKitServer = {
 
     // Add a helper to broadcast current active users list
     const broadcastActiveUsers = () => {
-      const users = Array.from(userMap.values()).map((u) => u.userName);
+      // const users = Array.from(userMap.values()).map((u) => u.userName);
+      const users = Array.from(userMap.values());
+      console.log("Server is broadcasting these users:", users); // <-- ADD THIS
       room.broadcast(
         JSON.stringify({
           type: "activeUsers",
-          users,
+          users,// This now sends [{ userId: 'abc', userName: 'Alice' }, ...]
         })
       );
     };
@@ -54,7 +56,9 @@ const ChatRoom: PartyKitServer = {
         // Store user info keyed by connection.id
         userMap.set(connection.id, { userId, userName });
 
-        console.log(`User ${userName} connected with ID ${userId} to room ${room.id}`);
+        console.log(
+          `User ${userName} connected with ID ${userId} to room ${room.id}`
+        );
 
         // Broadcast presence join to everyone
         room.broadcast(
@@ -101,6 +105,18 @@ const ChatRoom: PartyKitServer = {
             [connection.id] // optionally exclude sender
           );
           break;
+        case "agentChat":
+          // This handles messages sent on behalf of the Agent
+          room.broadcast(
+            JSON.stringify({
+              type: "chat", // Broadcast as a 'chat' so clients can render it
+              userId: "agent-id", // A unique static ID for the agent
+              userName: "Agent", // Manually set the sender's name
+              text: data.text,
+              timestamp: Date.now(),
+            })
+          );
+          break;
       }
     });
 
@@ -109,7 +125,9 @@ const ChatRoom: PartyKitServer = {
       userMap.delete(connection.id);
 
       // Broadcast presence left if user no longer connected with any other connection
-      const stillConnected = [...room.getConnections()].some((conn) => userMap.has(conn.id));
+      const stillConnected = [...room.getConnections()].some((conn) =>
+        userMap.has(conn.id)
+      );
 
       if (!stillConnected) {
         room.broadcast(

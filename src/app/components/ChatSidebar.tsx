@@ -1,10 +1,14 @@
-'use client'
+"use client";
 
 import React, { useState, useEffect, useRef } from 'react'
 import ChatBox from './ChatBox'
 import { useUser } from "@clerk/nextjs"
 import { FiMessageSquare, FiX, FiChevronRight, FiUsers, FiPlus } from 'react-icons/fi'
 import { HiOutlineHashtag } from 'react-icons/hi'
+import { Button } from "@/components/ui/button"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { Badge } from "@/components/ui/badge"
+import { toast } from "sonner"
 
 interface Channel {
   id: string
@@ -16,7 +20,7 @@ interface Channel {
 export default function ChatSidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [channels, setChannels] = useState<Channel[]>([])
   const [selected, setSelected] = useState<string | null>(null)
-  const [width, setWidth] = useState(384)
+  const [width, setWidth] = useState(500)
   const [isDragging, setIsDragging] = useState(false)
   const sidebarRef = useRef<HTMLDivElement>(null)
   const { user } = useUser()
@@ -25,9 +29,7 @@ export default function ChatSidebar({ open, onClose }: { open: boolean; onClose:
   const handleMouseMove = (e: MouseEvent) => {
     if (!isDragging || !sidebarRef.current) return
     
-    // Calculate new width based on mouse position
     const newWidth = window.innerWidth - e.clientX
-    // Set minimum and maximum width constraints
     const minWidth = 300
     const maxWidth = 600
     
@@ -58,39 +60,37 @@ export default function ChatSidebar({ open, onClose }: { open: boolean; onClose:
 
   useEffect(() => {
     const userId = user?.id;
-    console.log('Fetching channels for user:', userId)
     const fetchChannels = async () => {
-      const res = await fetch('/api/chat/global', {
-        headers: {
-          'user-id': userId || '',
-        }
-      })
-      const data = await res.json()
+      try {
+        const res = await fetch('/api/chat/global', {
+          headers: {
+            'user-id': userId || '',
+          }
+        })
+        const data = await res.json()
 
-      if (!data) return;
-      console.log('Fetched channels:', data)
+        if (!data) return;
 
-      if (!Array.isArray(data)) return
+        if (!Array.isArray(data)) return
 
-      const channelList = data.map((ws: any) => ({
-        id: ws._id,
-        name: (ws.name || 'Unnamed Workspace'),
-        isPersonal: ws.isPersonal,
-        unreadCount: 0 // You can add logic to count unread messages
-      }))
+        const channelList = data.map((ws: any) => ({
+          id: ws._id,
+          name: (ws.name || 'Unnamed Workspace'),
+          isPersonal: ws.isPersonal,
+          unreadCount: 0
+        }))
 
-      setChannels(channelList)
-      if (channelList.length > 0) setSelected(channelList[0].id)
+        setChannels(channelList)
+        if (channelList.length > 0) setSelected(channelList[0].id)
+      } catch (error) {
+        toast.error("Failed to load channels")
+      }
     }
 
     fetchChannels()
   }, [user?.id])
 
   const selectedChannel = channels.find(c => c.id === selected)
-
-  useEffect(() => {
-    console.log('Selected channel:', selectedChannel)
-  }, [selectedChannel])
 
   return (
     <div
@@ -112,21 +112,26 @@ export default function ChatSidebar({ open, onClose }: { open: boolean; onClose:
           <h2 className="font-semibold text-gray-800 text-lg">Workspace Chats</h2>
         </div>
         <div className="flex items-center space-x-2">
-          <button className="p-1.5 rounded-md hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-colors">
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            onClick={() => toast.info("Create channel feature coming soon")}
+          >
             <FiPlus size={18} />
-          </button>
-          <button 
-            onClick={onClose} 
-            className="p-1.5 rounded-md hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-colors"
+          </Button>
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            onClick={onClose}
           >
             <FiX size={18} />
-          </button>
+          </Button>
         </div>
       </div>
 
       {/* Content Area */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Channel List */}
+        {/* Channel List
         <div className="flex-shrink-0 border-b border-gray-200">
           <div className="py-3 px-2 max-h-64 overflow-y-auto">
             <div className="px-3 mb-2 flex items-center justify-between">
@@ -135,9 +140,10 @@ export default function ChatSidebar({ open, onClose }: { open: boolean; onClose:
             </div>
             
             {channels.map((ch) => (
-              <button
+              <Button
                 key={ch.id}
-                className={`flex items-center justify-between w-full text-left px-3 py-2.5 mx-1 rounded-lg transition-all
+                variant="ghost"
+                className={`w-full justify-between text-left px-3 py-2.5 mx-1 rounded-lg transition-all h-auto
                   ${selected === ch.id 
                     ? 'bg-blue-50 text-blue-700 font-medium' 
                     : 'text-gray-700 hover:bg-gray-50'}`}
@@ -147,34 +153,48 @@ export default function ChatSidebar({ open, onClose }: { open: boolean; onClose:
                   <HiOutlineHashtag className={`mr-2 flex-shrink-0 ${selected === ch.id ? 'text-blue-500' : 'text-gray-400'}`} />
                   <span className="truncate">{ch.name}</span>
                   {ch.isPersonal && (
-                    <span className="ml-2 px-1.5 py-0.5 text-xs rounded-full bg-purple-100 text-purple-700">Personal</span>
+                    <Badge variant="secondary" className="ml-2">
+                      Personal
+                    </Badge>
                   )}
                 </div>
                 <div className="flex items-center">
                   {ch.unreadCount && ch.unreadCount > 0 && (
-                    <span className="mr-2 px-1.5 py-0.5 text-xs rounded-full bg-blue-100 text-blue-700">
+                    <Badge variant="default" className="mr-2">
                       {ch.unreadCount}
-                    </span>
+                    </Badge>
                   )}
                   <FiChevronRight className={`text-gray-400 ${selected === ch.id ? 'opacity-100' : 'opacity-0'}`} />
                 </div>
-              </button>
+              </Button>
             ))}
           </div>
-        </div>
+        </div> */}
 
         {/* Chat Box */}
         <div className="flex-1 overflow-y-auto">
-          {selectedChannel && <ChatBox channel={selectedChannel} />}
+          {selectedChannel && (
+            <ChatBox 
+              channel={selectedChannel} 
+              channels={channels}
+              onChannelChange={(channelId) => {
+                setSelected(channelId);
+                toast.success(`Switched to ${channels.find(c => c.id === channelId)?.name}`);
+              }}
+            />
+          )}
         </div>
       </div>
 
       {/* User Profile Footer */}
       <div className="p-3 border-t border-gray-200 bg-gray-50">
         <div className="flex items-center space-x-3">
-          <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-white font-medium">
-            {user?.firstName?.charAt(0)}
-          </div>
+          <Avatar className="w-8 h-8">
+            <AvatarImage src={user?.imageUrl} />
+            <AvatarFallback className="bg-blue-500 text-white">
+              {user?.firstName?.charAt(0)}
+            </AvatarFallback>
+          </Avatar>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-gray-800 truncate">{user?.fullName}</p>
             <p className="text-xs text-gray-500 truncate">Online</p>
