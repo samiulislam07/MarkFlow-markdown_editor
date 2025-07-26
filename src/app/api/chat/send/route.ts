@@ -8,6 +8,7 @@ import Workspace from '@/lib/mongodb/models/Workspace' // ✅ needed so it's reg
 import User from '@/lib/mongodb/models/User'
 import fs from 'fs/promises'
 import path from 'path'
+import mongoose from 'mongoose'
 
 export const config = {
   runtime: 'nodejs',
@@ -26,6 +27,8 @@ export async function POST(request: NextRequest) {
     const message = formData.get('message') as string
     const workspaceId = formData.get('workspaceId') as string
     const file = formData.get('file') as File | null
+    const AR = formData.get('sender') as string
+    console.log('AR:', AR)
 
     if (!workspaceId || (!message && !file)) {
       return NextResponse.json({ message: 'Missing required fields' }, { status: 400 })
@@ -65,11 +68,20 @@ export async function POST(request: NextRequest) {
     }
 
    console.log('file:', file);
-    console.log('file.name:', file?.name);;
+   console.log('file.name:', file?.name);
+
+    let sender: mongoose.Types.ObjectId;
+    if (AR === 'Agent') {
+      sender = new mongoose.Types.ObjectId("6883a8ff028bd6fcf15ec1af");
+    } else {
+      sender = user._id;
+    }
+
+    console.log('sender:', sender);
 
     const newMessage = await ChatMessage.create({
       workspace: chat.workspace,
-      sender: user._id,
+      sender: sender,
       message: message || '',
       fileUrl: fileUrl || null,
       fileName: file?.name || null,
