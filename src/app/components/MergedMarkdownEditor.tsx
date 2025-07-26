@@ -25,7 +25,8 @@ import {
   LucideIcon,
   Moon,
   Sun,
-  Palette, MessageSquare,
+  Palette,
+  MessageSquare,
   Play,
 } from "lucide-react";
 import { EditorState } from "@codemirror/state";
@@ -33,7 +34,15 @@ import { EditorView, keymap, lineNumbers } from "@codemirror/view";
 import { markdown } from "@codemirror/lang-markdown";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
-import sanitizeHtml from "sanitize-html";
+import { unified } from 'unified';
+import remarkParse from 'remark-parse';
+import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+import remarkRehype from 'remark-rehype';
+import rehypeSanitize from 'rehype-sanitize';
+import rehypeStringify from 'rehype-stringify';
+import rehypeHighlight from 'rehype-highlight';
+import 'highlight.js/styles/github-dark.css';
 import { MathJaxContext, MathJax } from "better-react-mathjax";
 import { Subscript as MathIcon } from "lucide-react";
 import * as Y from "yjs";
@@ -93,6 +102,8 @@ const MergedMarkdownEditor: React.FC<MarkdownEditorProps> = ({
   const [autoCompile, setAutoCompile] = useState<boolean>(false);
   const [compiledContent, setCompiledContent] = useState<string>("");
   const [isCompiling, setIsCompiling] = useState<boolean>(false);
+  const [processedContent, setProcessedContent] = useState<string>("");
+  const [isProcessing, setIsProcessing] = useState<boolean>(false);
 
   // --- COMMENTING SYSTEM STATE ---
   const [isCommentSidebarOpen, setIsCommentSidebarOpen] = useState<boolean>(false);
@@ -294,37 +305,86 @@ const MergedMarkdownEditor: React.FC<MarkdownEditorProps> = ({
     setShowThemePicker(false);
   };
 
+  const processMarkdown = useCallback(async (markdown: string): Promise<string> => {
+    try {
+      const file = await unified()
+        .use(remarkParse)
+        .use(remarkGfm)
+        .use(remarkMath)
+        .use(remarkRehype)
+        .use(rehypeHighlight)
+        .use(rehypeSanitize, {
+          tagNames: [
+            'h1', 'h2', 'h3', 'p', 'a', 'ul', 'ol', 'li',
+            'blockquote', 'code', 'pre', 'hr', 'strong',
+            'em', 'div', 'span', 'del', 'img', 'table',
+            'thead', 'tbody', 'tr', 'th', 'td', 'input',
+            'sup', 'br'
+          ],
+          attributes: {
+            '*': ['className'],
+            'a': ['href', 'target', 'rel', 'id'],
+            'img': ['src', 'alt', 'title'],
+            'input': ['type', 'checked', 'disabled'],
+            'span': ['data*'],
+            'div': ['id']
+          }
+        })
+        .use(rehypeStringify)
+        .process(markdown);
+
+      return String(file);
+    } catch (error) {
+      console.error('Markdown processing error:', error);
+      return `<div class="markdown-error">Error rendering markdown</div>`;
+    }
+  }, []);
+
+  const processContent = useCallback(async (content: string) => {
+    setIsProcessing(true);
+    try {
+      const result = await processMarkdown(content);
+      setProcessedContent(result);
+    } catch (error) {
+      console.error("Markdown processing error:", error);
+      setProcessedContent("<div>Error rendering markdown</div>");
+    } finally {
+      setIsProcessing(false);
+    }
+  }, [processMarkdown]);
+
   const compileMarkdown = useCallback(async () => {
     if (isCompiling) return;
 
     setIsCompiling(true);
     try {
-      // Add a small delay to show the compilation is happening
-      await new Promise((resolve) => setTimeout(resolve, 200));
       setCompiledContent(markdownContent);
-      console.log("Markdown compiled successfully");
+      await processContent(markdownContent);
     } catch (error) {
       console.error("Compilation error:", error);
     } finally {
       setIsCompiling(false);
     }
-  }, [markdownContent, isCompiling]);
+  }, [markdownContent, isCompiling, processContent]);
 
   const toggleAutoCompile = () => {
     setAutoCompile(!autoCompile);
     if (!autoCompile) {
-      // If enabling auto-compile, compile immediately
       compileMarkdown();
     }
   };
 
-  // Initial compilation when component mounts
   useEffect(() => {
     if (markdownContent && !compiledContent) {
       compileMarkdown();
     }
   }, [markdownContent, compiledContent, compileMarkdown]);
 
+  useEffect(() => {
+    if (autoCompile || showPreview) {
+      processContent(markdownContent);
+    }
+  }, [markdownContent, autoCompile, showPreview, processContent]);
 
   const refreshEditor = useCallback(() => {
     if (editorViewRef.current) {
@@ -595,93 +655,6 @@ const MergedMarkdownEditor: React.FC<MarkdownEditorProps> = ({
     autoCompile,
     compileMarkdown,
   ]);
-
-  const processMarkdown = (markdown: string): string => {
-    let processed = markdown
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;");
-
-    processed = processed.replace(/\$\$(([\s\S])*?)\$\$/g, (_, content) => {
-      const trimmed = content.trim();
-      return `<div class="math-block">$$${trimmed}$$</div>`;
-    });
-
-    processed = processed.replace(/\$([^\$\n]+?)\$/g, (_, content) => {
-      const trimmed = content.trim();
-      return `<span class="math-inline">$${trimmed}$</span>`;
-    });
-
-    processed = processed.replace(
-      /```(\w+)?\n([\s\S]*?)```/g,
-      (_, lang, code) => {
-        const language = lang || "text";
-        return `<pre><code class="language-${language}">${code.trim()}</code></pre>`;
-      }
-    );
-
-    processed = processed.replace(/`([^`]+)`/g, "<code>$1</code>");
-    processed = processed.replace(/^### (.*$)/gm, "<h3>$1</h3>");
-    processed = processed.replace(/^## (.*$)/gm, "<h2>$1</h2>");
-    processed = processed.replace(/^# (.*$)/gm, "<h1>$1</h1>");
-    processed = processed.replace(
-      /\*\*\*(.*?)\*\*\*/g,
-      "<strong><em>$1</em></strong>"
-    );
-    processed = processed.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
-    processed = processed.replace(/\*(.*?)\*/g, "<em>$1</em>");
-    processed = processed.replace(/~~(.*?)~~/g, "<del>$1</del>");
-    processed = processed.replace(
-      /\[([^\]]+)\]\(([^)]+)\)/g,
-      '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>'
-    );
-    processed = processed.replace(/^\d+\.\s(.+)/gm, "<li>$1</li>");
-    processed = processed.replace(/(<li>.*<\/li>\s*)+/g, "<ol>$&</ol>");
-    processed = processed.replace(/^[-*+]\s(.+)/gm, "<li>$1</li>");
-    processed = processed.replace(/(<li>.*<\/li>\s*)+/g, (match) => {
-      if (match.includes("<ol>")) return match;
-      return `<ul>${match}</ul>`;
-    });
-    processed = processed.replace(/^>\s(.+)/gm, "<blockquote>$1</blockquote>");
-    processed = processed.replace(/^---$/gm, "<hr>");
-    processed = processed.replace(/\n\n/g, "</p><p>");
-    processed = `<p>${processed}</p>`;
-
-    processed = processed.replace(/<p><\/p>/g, "");
-    processed = processed.replace(/<p>(<h[1-6]>)/g, "$1");
-    processed = processed.replace(/(<\/h[1-6]>)<\/p>/g, "$1");
-    processed = processed.replace(/<p>(<[ou]l>)/g, "$1");
-    processed = processed.replace(/(<\/[ou]l>)<\/p>/g, "$1");
-
-    return sanitizeHtml(processed, {
-      allowedTags: [
-        "h1",
-        "h2",
-        "h3",
-        "p",
-        "a",
-        "ul",
-        "ol",
-        "li",
-        "blockquote",
-        "code",
-        "pre",
-        "hr",
-        "strong",
-        "em",
-        "div",
-        "span",
-        "del",
-      ],
-      allowedAttributes: {
-        a: ["href", "target", "rel"],
-        div: ["class"],
-        span: ["class"],
-        code: ["class"],
-        pre: ["class"],
-      },
-    });
-  };
 
   useEffect(() => {
     if (editorRef.current && !editorViewRef.current && user) {
@@ -1502,15 +1475,19 @@ const MergedMarkdownEditor: React.FC<MarkdownEditorProps> = ({
                   <div className="flex items-center space-x-2">
                     <div
                       className={`w-2 h-2 rounded-full ${
-                        compiledContent === markdownContent
+                        isProcessing
+                          ? "bg-yellow-500"
+                          : processedContent
                           ? "bg-green-500"
-                          : "bg-yellow-500"
+                          : "bg-gray-400"
                       }`}
                     ></div>
                     <span className="text-xs">
-                      {compiledContent === markdownContent
+                      {isProcessing
+                        ? "Processing..."
+                        : processedContent
                         ? "Up to date"
-                        : "Needs compile"}
+                        : "Not compiled"}
                     </span>
                     <Eye className="w-4 h-4" />
                   </div>
@@ -1526,62 +1503,30 @@ const MergedMarkdownEditor: React.FC<MarkdownEditorProps> = ({
                 }}
               >
                 <div className="flex-1 p-6">
-                  {compiledContent ? (
+                  {isProcessing ? (
+                    <div className={`flex flex-col items-center justify-center h-64 ${
+                      darkMode ? "text-gray-400" : "text-gray-500"
+                    }`}>
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mb-4"></div>
+                      <p className="text-sm">Processing markdown...</p>
+                    </div>
+                  ) : processedContent ? (
                     <MathJaxContext config={mathJaxConfig}>
                       <MathJax>
-                        <div className="preview-content">
-                          {compiledContent.split("\n").map((line, index) => {
-                            const lineNumber = index + 1;
-                            const processedLine = processMarkdown(line);
-                            return (
-                              <div
-                                key={lineNumber}
-                                className={`preview-line leading-6 ${
-                                  darkMode ? "text-gray-200" : "text-gray-800"
-                                }`}
-                                data-line={lineNumber}
-                                style={{
-                                  minHeight: "1.5rem",
-                                  wordWrap: "break-word",
-                                  overflowWrap: "break-word",
-                                  whiteSpace: "pre-wrap",
-                                  paddingTop: "0.125rem",
-                                }}
-                              >
-                                {line.trim() === "" ? (
-                                  <span
-                                    style={{
-                                      height: "1.5rem",
-                                      display: "block",
-                                    }}
-                                  >
-                                    &nbsp;
-                                  </span>
-                                ) : (
-                                  <span
-                                    className={`prose prose-lg max-w-none inline-block w-full ${
-                                      darkMode ? "prose-invert" : ""
-                                    }`}
-                                    style={{
-                                      fontSize: "16px",
-                                      lineHeight: "1.5",
-                                      wordWrap: "break-word",
-                                      overflowWrap: "break-word",
-                                      whiteSpace: "pre-wrap",
-                                    }}
-                                    dangerouslySetInnerHTML={{
-                                      __html:
-                                        processedLine.replace(
-                                          /<p>|<\/p>/g,
-                                          ""
-                                        ) || "&nbsp;",
-                                    }}
-                                  />
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
+                        <div 
+                          className={`prose prose-lg max-w-none ${
+                            darkMode ? "prose-invert" : ""
+                          }`}
+                          style={{
+                            fontSize: "16px",
+                            lineHeight: "1.6",
+                            wordWrap: "break-word",
+                            overflowWrap: "break-word",
+                          }}
+                          dangerouslySetInnerHTML={{
+                            __html: processedContent
+                          }}
+                        />
                       </MathJax>
                     </MathJaxContext>
                   ) : (
@@ -1667,6 +1612,196 @@ const MergedMarkdownEditor: React.FC<MarkdownEditorProps> = ({
         </div>
       </div>
       <style jsx global>{`
+        /* Table styles for GitHub Flavored Markdown */
+        .prose table {
+          border-collapse: collapse !important;
+          width: 100% !important;
+          margin: 1.5rem 0 !important;
+          border: 1px solid ${darkMode ? "#4a5568" : "#e5e7eb"} !important;
+          border-radius: 0.5rem !important;
+          overflow: hidden !important;
+        }
+        .prose thead {
+          background-color: ${darkMode ? "#2d3748" : "#f9fafb"} !important;
+        }
+        .prose th {
+          padding: 0.75rem 1rem !important;
+          text-align: left !important;
+          font-weight: 600 !important;
+          border-bottom: 2px solid ${darkMode ? "#4a5568" : "#d1d5db"} !important;
+          border-right: 1px solid ${darkMode ? "#4a5568" : "#e5e7eb"} !important;
+          color: ${darkMode ? "#f7fafc" : "#374151"} !important;
+        }
+        .prose th:last-child {
+          border-right: none !important;
+        }
+        .prose td {
+          padding: 0.75rem 1rem !important;
+          border-bottom: 1px solid ${darkMode ? "#4a5568" : "#e5e7eb"} !important;
+          border-right: 1px solid ${darkMode ? "#4a5568" : "#e5e7eb"} !important;
+          color: ${darkMode ? "#e2e8f0" : "#374151"} !important;
+        }
+        .prose td:last-child {
+          border-right: none !important;
+        }
+        .prose tbody tr:hover {
+          background-color: ${darkMode ? "rgba(74, 85, 104, 0.3)" : "rgba(249, 250, 251, 0.8)"} !important;
+        }
+        .prose tbody tr:last-child td {
+          border-bottom: none !important;
+        }
+
+        /* Task list styles */
+        .prose .task-list-item {
+          list-style: none !important;
+          margin-left: -1.5rem !important;
+          padding-left: 0 !important;
+          display: flex !important;
+          align-items: flex-start !important;
+          gap: 0.5rem !important;
+        }
+        .prose .task-list-item input[type="checkbox"] {
+          margin: 0.25rem 0 0 0 !important;
+          accent-color: ${darkMode ? "#63b3ed" : "#3b82f6"} !important;
+          cursor: pointer !important;
+        }
+        .prose .task-list-item input[type="checkbox"]:checked + span {
+          text-decoration: line-through !important;
+          color: ${darkMode ? "#a0aec0" : "#6b7280"} !important;
+        }
+
+        /* Syntax highlighting styles */
+        .prose .hljs {
+          display: block !important;
+          overflow-x: auto !important;
+          padding: 1rem !important;
+          background-color: ${darkMode ? "#2d3748" : "#f8fafc"} !important;
+          color: ${darkMode ? "#e2e8f0" : "#334155"} !important;
+          border-radius: 0.5rem !important;
+          font-size: 0.875rem !important;
+          line-height: 1.5 !important;
+        }
+        .prose .hljs-comment,
+        .prose .hljs-quote {
+          color: ${darkMode ? "#a0aec0" : "#64748b"} !important;
+          font-style: italic !important;
+        }
+        .prose .hljs-keyword,
+        .prose .hljs-selector-tag,
+        .prose .hljs-subst {
+          color: ${darkMode ? "#f687b3" : "#db2777"} !important;
+          font-weight: 600 !important;
+        }
+        .prose .hljs-number,
+        .prose .hljs-literal,
+        .prose .hljs-variable,
+        .prose .hljs-template-variable,
+        .prose .hljs-tag .hljs-attr {
+          color: ${darkMode ? "#fbb6ce" : "#be185d"} !important;
+        }
+        .prose .hljs-string,
+        .prose .hljs-doctag {
+          color: ${darkMode ? "#68d391" : "#059669"} !important;
+        }
+        .prose .hljs-title,
+        .prose .hljs-section,
+        .prose .hljs-selector-id {
+          color: ${darkMode ? "#63b3ed" : "#3b82f6"} !important;
+          font-weight: 600 !important;
+        }
+        .prose .hljs-subst {
+          font-weight: normal !important;
+        }
+        .prose .hljs-type,
+        .prose .hljs-class .hljs-title {
+          color: ${darkMode ? "#fbb6ce" : "#be185d"} !important;
+          font-weight: 600 !important;
+        }
+        .prose .hljs-tag,
+        .prose .hljs-name,
+        .prose .hljs-attribute {
+          color: ${darkMode ? "#81e6d9" : "#0891b2"} !important;
+          font-weight: normal !important;
+        }
+        .prose .hljs-regexp,
+        .prose .hljs-link {
+          color: ${darkMode ? "#f6ad55" : "#ea580c"} !important;
+        }
+        .prose .hljs-symbol,
+        .prose .hljs-bullet {
+          color: ${darkMode ? "#a78bfa" : "#7c3aed"} !important;
+        }
+        .prose .hljs-built_in,
+        .prose .hljs-builtin-name {
+          color: ${darkMode ? "#fbb6ce" : "#be185d"} !important;
+        }
+        .prose .hljs-meta {
+          color: ${darkMode ? "#a0aec0" : "#64748b"} !important;
+        }
+        .prose .hljs-deletion {
+          background-color: ${darkMode ? "rgba(252, 165, 165, 0.2)" : "rgba(254, 202, 202, 0.3)"} !important;
+        }
+        .prose .hljs-addition {
+          background-color: ${darkMode ? "rgba(167, 243, 208, 0.2)" : "rgba(187, 247, 208, 0.3)"} !important;
+        }
+        .prose .hljs-emphasis {
+          font-style: italic !important;
+        }
+        .prose .hljs-strong {
+          font-weight: bold !important;
+        }
+
+        /* Enhanced list styles */
+        .prose ul ul,
+        .prose ul ol,
+        .prose ol ul,
+        .prose ol ol {
+          margin-top: 0.5rem !important;
+          margin-bottom: 0.5rem !important;
+        }
+        .prose ul li {
+          position: relative !important;
+        }
+        .prose ul li::marker {
+          color: ${darkMode ? "#63b3ed" : "#3b82f6"} !important;
+        }
+        .prose ol li::marker {
+          color: ${darkMode ? "#63b3ed" : "#3b82f6"} !important;
+          font-weight: 600 !important;
+        }
+
+        /* Enhanced inline code styles */
+        .prose :not(pre) > code {
+          font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace !important;
+          font-weight: 500 !important;
+        }
+
+        /* Footnote styles */
+        .prose .footnote-ref {
+          color: ${darkMode ? "#63b3ed" : "#3b82f6"} !important;
+          text-decoration: none !important;
+          font-size: 0.75rem !important;
+          vertical-align: super !important;
+          font-weight: 600 !important;
+        }
+        .prose .footnote-ref:hover {
+          text-decoration: underline !important;
+        }
+        .prose .footnotes {
+          margin-top: 2rem !important;
+          padding-top: 1rem !important;
+          border-top: 1px solid ${darkMode ? "#4a5568" : "#e5e7eb"} !important;
+          font-size: 0.875rem !important;
+        }
+        .prose .footnotes ol {
+          padding-left: 1rem !important;
+        }
+        .prose .footnote-backref {
+          color: ${darkMode ? "#63b3ed" : "#3b82f6"} !important;
+          text-decoration: none !important;
+          margin-left: 0.5rem !important;
+        }
+
         .cm-editor .cm-cursor {
           border-left: 2px solid #60a5fa !important;
           margin-left: -1px !important;

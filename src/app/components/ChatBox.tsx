@@ -423,7 +423,7 @@ export default function ChatBox({
             {activeUsers.slice(0, 3).map((user, i) => (
               <Avatar key={i} className="w-5 h-5 border-2 border-white">
                 <AvatarFallback className="text-xs bg-blue-200">
-                  {user.charAt(0)}
+                  {user.userName}
                 </AvatarFallback>
               </Avatar>
             ))}
