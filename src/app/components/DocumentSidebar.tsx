@@ -165,8 +165,8 @@ const DocumentSidebar: React.FC<DocumentSidebarProps> = ({
   }
 
   return (
-    <div className={`w-64 bg-gray-50 border-r border-gray-200 flex flex-col ${className}`}>
-      <div className="p-4 border-b border-gray-200">
+    <div className={`w-60 bg-gray-50 border-r border-gray-200 flex flex-col ${className}`}>
+      <div className="p-4 border-b border-gray-200 mt-12">
         <h2 className="text-sm font-semibold text-gray-900">
           {currentWorkspaceId ? 'Documents' : 'All Documents'}
         </h2>

@@ -1,49 +1,53 @@
-"use client";
-import React, { useState, useEffect, useRef, useCallback } from "react";
-import { useUser } from "@clerk/nextjs";
-import { useRouter } from "next/navigation";
+'use client';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useUser } from '@clerk/nextjs';
+import { useRouter } from 'next/navigation';
 import {
-  Bold,
-  Italic,
-  Code,
-  Link,
-  List,
-  ListOrdered,
-  Quote,
-  Minus,
-  Copy,
-  Download,
-  Eye,
-  Maximize,
-  Minimize,
-  Save,
-  ArrowLeft,
-  Check,
-  AlertCircle,
-  Loader2,
-  Edit3,
-  LucideIcon,
-  Moon,
-  Sun,
-  Palette, MessageSquare,
-  Play,
-} from "lucide-react";
-import { EditorState } from "@codemirror/state";
-import { EditorView, keymap, lineNumbers } from "@codemirror/view";
-import { markdown } from "@codemirror/lang-markdown";
-import { oneDark } from "@codemirror/theme-one-dark";
-import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
-import sanitizeHtml from "sanitize-html";
-import { MathJaxContext, MathJax } from "better-react-mathjax";
-import { Subscript as MathIcon } from "lucide-react";
-import * as Y from "yjs";
-import { yCollab, yUndoManagerKeymap } from "y-codemirror.next";
-import YPartyKitProvider from "y-partykit/provider";
+  Bold, Italic, Code, Link, List, ListOrdered, Quote, Minus,
+  Copy, Download, Eye, Maximize, Minimize, Save,
+  ArrowLeft, Check, AlertCircle, Loader2, Edit3,
+  LucideIcon, Moon, Sun, Palette, MessageSquare, Play,
+  Table, Hash, Strikethrough, Subscript, Superscript
+} from 'lucide-react';
 
-// --- COMMENTING SYSTEM IMPORTS ---
+import { EditorState, StateField, StateEffect } from '@codemirror/state';
+import { EditorView, keymap, Decoration, DecorationSet, lineNumbers } from '@codemirror/view';
+import { markdown } from '@codemirror/lang-markdown';
+import { oneDark } from '@codemirror/theme-one-dark';
+import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
+import { MathJaxContext, MathJax } from 'better-react-mathjax';
+import { Subscript as MathIcon } from 'lucide-react';
+
+// --- ENHANCED MARKDOWN PARSING IMPORTS ---
+import MarkdownIt from 'markdown-it';
+import mathjax from 'markdown-it-mathjax3';
+import footnote from 'markdown-it-footnote';
+import sub from 'markdown-it-sub';
+import sup from 'markdown-it-sup';
+import abbr from 'markdown-it-abbr';
+
+// --- NEW IMPORTS for Collaboration ---
+import * as Y from 'yjs';
+import { yCollab, yUndoManagerKeymap } from 'y-codemirror.next';
+import YPartyKitProvider from 'y-partykit/provider';
+import { nanoid } from 'nanoid';
+
+// --- ENHANCED MARKDOWN PARSING IMPORTS ---
+import { unified } from 'unified';
+import remarkParse from 'remark-parse';
+import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+import remarkRehype from 'remark-rehype';
+import rehypeSanitize from 'rehype-sanitize';
+import rehypeStringify from 'rehype-stringify';
+import rehypeHighlight from 'rehype-highlight';
+import 'highlight.js/styles/github-dark.css';
+
+// --- UPDATED COMMENTING SYSTEM IMPORTS ---
 import CommentButton from './CommentButton';
-import CommentSidebar, { type CommentPosition, type CommentData } from './CommentSidebar';
+import CommentSidebar, { type CommentAction } from './CommentSidebar';
 import { useCommentSelection } from '@/hooks/useCommentSelection';
+import { CommentData, CreateCommentData } from '@/types/comment';
 
 interface MarkdownEditorProps {
   documentId?: string;
@@ -51,22 +55,32 @@ interface MarkdownEditorProps {
   doc: Y.Doc;
   provider: YPartyKitProvider;
   onDocumentSaved?: (newDocumentId: string) => void;
+  isDocumentSidebarOpen?: boolean;
 }
 
-const MergedMarkdownEditor: React.FC<MarkdownEditorProps> = ({
-  documentId,
-  workspaceId,
-  doc,
-  provider,
+const MergedMarkdownEditor: React.FC<MarkdownEditorProps> = ({ 
+  documentId, 
+  workspaceId, 
+  doc, 
+  provider, 
   onDocumentSaved,
+  isDocumentSidebarOpen = false 
 }) => {
   const { user } = useUser();
   const router = useRouter();
-  const ytext = doc.getText("codemirror");
-  const ytitle = doc.getText("title");
 
-  const [title, setTitle] = useState(ytitle.toString() || "Untitled Document");
+  // --- YJS-POWERED STATE ---
+  const ytext = useMemo(() => doc.getText('codemirror'), [doc]);
+  const ytitle = useMemo(() => doc.getText('title'), [doc]);
+  const ycomments = useMemo(() => doc.getArray<Y.Map<any>>('comments'), [doc]);
+
+  // --- REACT UI STATE (DERIVED FROM YJS) ---
+  const [title, setTitle] = useState(ytitle.toString() || 'Untitled Document');
   const [markdownContent, setMarkdownContent] = useState(ytext.toString());
+  const [comments, setComments] = useState<CommentData[]>([]);
+
+  // --- UI-ONLY STATE ---
+  const [htmlContent, setHtmlContent] = useState<string>('');
   const [showPreview, setShowPreview] = useState<boolean>(true);
   const [isFullScreen, setIsFullScreen] = useState<boolean>(false);
   const [saveStatus, setSaveStatus] = useState<
@@ -93,14 +107,12 @@ const MergedMarkdownEditor: React.FC<MarkdownEditorProps> = ({
   const [autoCompile, setAutoCompile] = useState<boolean>(false);
   const [compiledContent, setCompiledContent] = useState<string>("");
   const [isCompiling, setIsCompiling] = useState<boolean>(false);
+  const [processedContent, setProcessedContent] = useState<string>("");
+  const [isProcessing, setIsProcessing] = useState<boolean>(false);
 
   // --- COMMENTING SYSTEM STATE ---
   const [isCommentSidebarOpen, setIsCommentSidebarOpen] = useState<boolean>(false);
-  const [selectedTextForComment, setSelectedTextForComment] = useState<{
-    text: string;
-    position: CommentPosition;
-  } | undefined>(undefined);
-  const [activeCommentId, setActiveCommentId] = useState<string | undefined>(undefined);
+  const refreshDecorations = StateEffect.define<{ ydoc: Y.Doc; activeId: string | null }>();
 
   const editorRef = useRef<HTMLDivElement>(null);
   const editorViewRef = useRef<EditorView | null>(null);
@@ -110,168 +122,189 @@ const MergedMarkdownEditor: React.FC<MarkdownEditorProps> = ({
   const themePickerRef = useRef<HTMLDivElement>(null);
   const commentWebSocketRef = useRef<WebSocket | null>(null);
 
-  // --- COMMENTING SYSTEM HOOKS ---
-  const [comments, setComments] = useState<CommentData[]>([]);
-  const [commentsLoading, setCommentsLoading] = useState(false);
+  const { commentButtonState, showCommentButton, dismissCommentButton } = useCommentSelection();
+  const [activeCommentId, setActiveCommentId] = useState<string | null>(null);
 
-  const {
-    isCommentButtonVisible,
-    selectedText,
-    buttonPosition,
-    selectionPosition,
-    dismissCommentButton,
-  } = useCommentSelection(editorRef as React.RefObject<HTMLElement>, !!user && !!documentId);
+  const commentDecorationField = StateField.define<DecorationSet>({
+  create() {
+    return Decoration.none;
+  },
+  update(decorations, tr) {
+    decorations = decorations.map(tr.changes);
 
-  // Handle adding a comment
-  const handleAddComment = useCallback((text: string, position: CommentPosition) => {
-    console.log('MergedMarkdownEditor: handleAddComment called with:', { text, position });
-    setSelectedTextForComment({ text, position });
-    setIsCommentSidebarOpen(true);
-    dismissCommentButton();
-  }, [dismissCommentButton]);
+    for (const effect of tr.effects) {
+      if (effect.is(refreshDecorations)) {
+        const { ydoc, activeId } = effect.value;
+        const commentsArray = ydoc.getArray<Y.Map<any>>('comments');
+        const newDecorations: any[] = [];
 
-  // Handle comment creation callback
-  const handleCommentCreate = useCallback((comment: CommentData) => {
-    console.log('Comment created:', comment);
-    
-    // Add to local state
-    setComments(prev => [...prev, comment]);
-    
-    // Broadcast to other users
-    if (commentWebSocketRef.current && commentWebSocketRef.current.readyState === WebSocket.OPEN) {
-      commentWebSocketRef.current.send(JSON.stringify({
-        type: 'comment_added',
-        comment
-      }));
-    }
-    
-    // Clear selected text after comment is created
-    setSelectedTextForComment(undefined);
-  }, []);
+        commentsArray.forEach(commentMap => {
+          const comment = commentMap.toJSON();
+          try {
+            const startRelPos = JSON.parse(comment.anchorStart);
+            const endRelPos = JSON.parse(comment.anchorEnd);
 
-  // Handle comment update callback
-  const handleCommentUpdate = useCallback((comment: CommentData) => {
-    console.log('Comment updated:', comment);
-    
-    // Update local state
-    setComments(prev => 
-      prev.map(c => c._id === comment._id ? comment : c)
-    );
-    
-    // Broadcast to other users
-    if (commentWebSocketRef.current && commentWebSocketRef.current.readyState === WebSocket.OPEN) {
-      commentWebSocketRef.current.send(JSON.stringify({
-        type: 'comment_updated',
-        comment
-      }));
-    }
-  }, []);
+            const startAbsPos = Y.createAbsolutePositionFromRelativePosition(startRelPos, ydoc);
+            const endAbsPos = Y.createAbsolutePositionFromRelativePosition(endRelPos, ydoc);
 
-  // Handle comment delete callback
-  const handleCommentDelete = useCallback((commentId: string) => {
-    console.log('Comment deleted:', commentId);
-    
-    // Remove from local state
-    setComments(prev => prev.filter(c => c._id !== commentId));
-    
-    // Broadcast to other users
-    if (commentWebSocketRef.current && commentWebSocketRef.current.readyState === WebSocket.OPEN) {
-      commentWebSocketRef.current.send(JSON.stringify({
-        type: 'comment_deleted',
-        commentId
-      }));
-    }
-  }, []);
-
-  // Handle closing comment sidebar
-  const handleCloseCommentSidebar = useCallback(() => {
-    setIsCommentSidebarOpen(false);
-    setSelectedTextForComment(undefined);
-    setActiveCommentId(undefined);
-  }, []);
-
-  // Fetch comments for the document
-  const fetchComments = useCallback(async () => {
-    if (!documentId) return;
-    
-    setCommentsLoading(true);
-    try {
-      const response = await fetch(`/api/comments?noteId=${documentId}&includeResolved=true`);
-      if (response.ok) {
-        const commentsData = await response.json();
-        setComments(commentsData);
+            if (startAbsPos && endAbsPos && startAbsPos.index < endAbsPos.index) {
+              const isActive = comment._id === activeId;
+              newDecorations.push(
+                Decoration.mark({
+                  class: isActive ? 'cm-comment-highlight-active' : 'cm-comment-highlight',
+                  attributes: { 'data-comment-id': comment._id },
+                }).range(startAbsPos.index, endAbsPos.index)
+              );
+            }
+          } catch (e) {
+            console.error("Could not resolve comment position", e);
+          }
+        });
+        return Decoration.set(newDecorations);
       }
-    } catch (error) {
-      console.error('Error fetching comments:', error);
-    } finally {
-      setCommentsLoading(false);
     }
-  }, [documentId]);
+    return decorations;
+  },
+  provide: f => EditorView.decorations.from(f),
+});
 
-  // Load comments when document ID changes
-  useEffect(() => {
-    fetchComments();
-  }, [fetchComments]);
+  const handleSetActiveComment = useCallback((commentId: string | null) => {
+    setActiveCommentId(commentId);
+    if (!commentId || !editorViewRef.current) return;
 
-  // Real-time comment synchronization
-  useEffect(() => {
-    if (!documentId) return;
+    const comment = ycomments.toArray().find(c => c.get('_id') === commentId);
+    if (comment) {
+        try {
+            const relPosJSON = JSON.parse(comment.get('anchorStart') as string);
+            const relativePosition = relPosJSON;
+            const absolutePosition = Y.createAbsolutePositionFromRelativePosition(relativePosition, doc);
 
-    const commentRoomId = `comments-${documentId}`;
-    const partyKitHost = process.env.NEXT_PUBLIC_PARTYKIT_HOST || 'localhost:1999';
-    const wsUrl = `ws://${partyKitHost}/parties/main/${commentRoomId}`;
-    
-    const ws = new WebSocket(wsUrl);
-    commentWebSocketRef.current = ws;
-
-    ws.onopen = () => {
-      console.log('Connected to comment room:', commentRoomId);
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        const message = JSON.parse(event.data);
-        
-        switch (message.type) {
-          case 'comment_added':
-            console.log('Real-time comment added:', message.comment);
-            setComments(prev => [...prev, message.comment]);
-            break;
-          case 'comment_updated':
-            console.log('Real-time comment updated:', message.comment);
-            setComments(prev => 
-              prev.map(comment => 
-                comment._id === message.comment._id ? message.comment : comment
-              )
-            );
-            break;
-          case 'comment_deleted':
-            console.log('Real-time comment deleted:', message.commentId);
-            setComments(prev => 
-              prev.filter(comment => comment._id !== message.commentId)
-            );
-            break;
+            if (absolutePosition) {
+              editorViewRef.current.dispatch({
+                  effects: EditorView.scrollIntoView(absolutePosition.index, { y: 'center' })
+              });
+            }
+        } catch (e) {
+            console.error("Failed to scroll to comment", e);
         }
-      } catch (error) {
-        console.error('Error handling real-time comment message:', error);
+    }
+}, [ycomments, doc]);
+
+  useEffect(() => {
+    const syncComments = () => {
+      const currentComments = ycomments.toArray().map(ymap => ymap.toJSON() as CommentData);
+      
+      const commentMap = new Map(currentComments.map(c => [c._id, { ...c, replies: [] as CommentData[] }]));
+      const threadedComments: CommentData[] = [];
+
+      currentComments.forEach(comment => {
+        if (comment.parent) {
+          const parent = commentMap.get(comment.parent);
+          if (parent) {
+            parent.replies.push(commentMap.get(comment._id)!);
+          }
+        } else {
+          threadedComments.push(commentMap.get(comment._id)!);
+        }
+      });
+      
+      setComments(threadedComments);
+
+    };
+
+    ycomments.observe(syncComments);
+    syncComments();
+
+    return () => ycomments.unobserve(syncComments);
+  }, [ycomments]);
+
+  useEffect(() => {
+    if (editorViewRef.current) {
+        editorViewRef.current.dispatch({
+            effects: [refreshDecorations.of({ ydoc: doc, activeId: activeCommentId })]
+        });
+    }
+  }, [comments, activeCommentId, doc]);
+  
+  const handleCommentAction = useCallback((action: CommentAction) => {
+    if (!user || !editorViewRef.current) return;
+
+    doc.transact(() => {
+      switch (action.type) {
+        case 'create': {
+          const { from, to } = action.payload.selection;
+          const ytext = doc.getText('codemirror');
+          const anchorStart = JSON.stringify(Y.createRelativePositionFromTypeIndex(ytext, from));
+          const anchorEnd = JSON.stringify(Y.createRelativePositionFromTypeIndex(ytext, to));
+
+          const newComment: Omit<CommentData, 'replies'> = {
+            _id: nanoid(),
+            author: { _id: user.id, name: user.firstName || user.emailAddresses[0].emailAddress, avatar: user.imageUrl },
+            content: action.payload.content,
+            createdAt: new Date().toISOString(),
+            isResolved: false,
+            selectedText: action.payload.selectedText,
+            anchorStart,
+            anchorEnd,
+          };
+          ycomments.push([new Y.Map(Object.entries(newComment))]);
+          setIsCommentSidebarOpen(true);
+          dismissCommentButton();
+          break;
+        }
+        case 'reply': {
+           const newReply: Omit<CommentData, 'replies'> = {
+            _id: nanoid(),
+            parent: action.payload.parentId,
+            author: { _id: user.id, name: user.firstName || user.emailAddresses[0].emailAddress, avatar: user.imageUrl },
+            content: action.payload.content,
+            createdAt: new Date().toISOString(),
+            isResolved: false,
+            anchorStart: '',
+            anchorEnd: '',
+          };
+          ycomments.push([new Y.Map(Object.entries(newReply))]);
+          break;
+        }
+        case 'edit': {
+          const commentIndex = ycomments.toArray().findIndex(c => c.get('_id') === action.payload.commentId);
+          if (commentIndex > -1) {
+            const ycomment = ycomments.get(commentIndex);
+            ycomment.set('content', action.payload.content);
+            ycomment.set('isEdited', true);
+            ycomment.set('editedAt', new Date().toISOString());
+          }
+          break;
+        }
+        case 'delete': {
+          const idsToDelete = new Set([action.payload.commentId]);
+          let changed = true;
+          while(changed) {
+            changed = false;
+            ycomments.toArray().forEach(c => {
+              const parentId = c.get('parent');
+              if(parentId && idsToDelete.has(parentId) && !idsToDelete.has(c.get('_id'))) {
+                idsToDelete.add(c.get('_id'));
+                changed = true;
+              }
+            });
+          }
+
+          const toDeleteIndices = ycomments.toArray().map((c, i) => idsToDelete.has(c.get('_id')) ? i : -1).filter(i => i !== -1).reverse();
+          toDeleteIndices.forEach(index => ycomments.delete(index, 1));
+          break;
+        }
+        case 'resolve': {
+          const commentIndex = ycomments.toArray().findIndex(c => c.get('_id') === action.payload.commentId);
+          if (commentIndex > -1) {
+            ycomments.get(commentIndex).set('isResolved', action.payload.isResolved);
+          }
+          break;
+        }
       }
-    };
+    });
+  }, [doc, ycomments, user, dismissCommentButton]);
 
-    ws.onclose = () => {
-      console.log('Disconnected from comment room:', commentRoomId);
-    };
-
-    ws.onerror = (error) => {
-      console.error('Comment WebSocket error:', error);
-    };
-
-    return () => {
-      if (commentWebSocketRef.current) {
-        commentWebSocketRef.current.close();
-        commentWebSocketRef.current = null;
-      }
-    };
-  }, [documentId]);
   const scrollSyncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const mathJaxConfig = {
@@ -294,43 +327,95 @@ const MergedMarkdownEditor: React.FC<MarkdownEditorProps> = ({
     setShowThemePicker(false);
   };
 
+  const processMarkdown = useCallback(async (markdown: string): Promise<string> => {
+    try {
+      const file = await unified()
+        .use(remarkParse)
+        .use(remarkGfm)
+        .use(remarkMath)
+        .use(remarkRehype)
+        .use(rehypeHighlight)
+        .use(rehypeSanitize, {
+          tagNames: [
+            'h1', 'h2', 'h3', 'p', 'a', 'ul', 'ol', 'li',
+            'blockquote', 'code', 'pre', 'hr', 'strong',
+            'em', 'div', 'span', 'del', 'img', 'table',
+            'thead', 'tbody', 'tr', 'th', 'td', 'input',
+            'sup', 'br'
+          ],
+          attributes: {
+            '*': ['className'],
+            'a': ['href', 'target', 'rel', 'id'],
+            'img': ['src', 'alt', 'title'],
+            'input': ['type', 'checked', 'disabled'],
+            'span': ['data*'],
+            'div': ['id']
+          }
+        })
+        .use(rehypeStringify)
+        .process(markdown);
+
+      return String(file);
+    } catch (error) {
+      console.error('Markdown processing error:', error);
+      return `<div class="markdown-error">Error rendering markdown</div>`;
+    }
+  }, []);
+
+  const processContent = useCallback(async (content: string) => {
+    setIsProcessing(true);
+    try {
+      const result = await processMarkdown(content);
+      setProcessedContent(result);
+    } catch (error) {
+      console.error("Markdown processing error:", error);
+      setProcessedContent("<div>Error rendering markdown</div>");
+    } finally {
+      setIsProcessing(false);
+    }
+  }, [processMarkdown]);
+
   const compileMarkdown = useCallback(async () => {
     if (isCompiling) return;
 
     setIsCompiling(true);
     try {
-      // Add a small delay to show the compilation is happening
       await new Promise((resolve) => setTimeout(resolve, 200));
-      setCompiledContent(markdownContent);
+      // Process the entire document at once and store the resulting HTML
+      const compiled = await processMarkdown(markdownContent);
+      setCompiledContent(compiled);
       console.log("Markdown compiled successfully");
     } catch (error) {
       console.error("Compilation error:", error);
     } finally {
       setIsCompiling(false);
     }
-  }, [markdownContent, isCompiling]);
+  }, [markdownContent, isCompiling, processMarkdown, processContent]);
 
   const toggleAutoCompile = () => {
     setAutoCompile(!autoCompile);
     if (!autoCompile) {
-      // If enabling auto-compile, compile immediately
       compileMarkdown();
     }
   };
 
-  // Initial compilation when component mounts
   useEffect(() => {
     if (markdownContent && !compiledContent) {
       compileMarkdown();
     }
   }, [markdownContent, compiledContent, compileMarkdown]);
 
+  useEffect(() => {
+    if (autoCompile || showPreview) {
+      processContent(markdownContent);
+    }
+  }, [markdownContent, autoCompile, showPreview, processContent]);
 
   const refreshEditor = useCallback(() => {
     if (editorViewRef.current) {
       editorViewRef.current.requestMeasure();
       editorViewRef.current.dispatch({
-        effects: [], // Trigger a no-op update to force re-rendering
+        effects: [],
       });
     }
   }, []);
@@ -549,7 +634,6 @@ const MergedMarkdownEditor: React.FC<MarkdownEditorProps> = ({
         setLastSaved(new Date());
 
         if (!documentId && savedDoc._id) {
-          // Use callback instead of router.replace to avoid page reload
           onDocumentSaved?.(savedDoc._id);
         }
       } else {
@@ -569,7 +653,6 @@ const MergedMarkdownEditor: React.FC<MarkdownEditorProps> = ({
         setSaveStatus("unsaved");
         refreshEditor();
 
-        // Auto-compile if enabled
         if (autoCompile) {
           compileMarkdown();
         }
@@ -596,112 +679,26 @@ const MergedMarkdownEditor: React.FC<MarkdownEditorProps> = ({
     compileMarkdown,
   ]);
 
-  const processMarkdown = (markdown: string): string => {
-    let processed = markdown
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;");
+const md = new MarkdownIt({
+  html: true,
+  linkify: true,
+  typographer: true,
+})
+.use(mathjax)
+.use(footnote)
+.use(sub)
+.use(sup)
+.use(abbr);
 
-    processed = processed.replace(/\$\$(([\s\S])*?)\$\$/g, (_, content) => {
-      const trimmed = content.trim();
-      return `<div class="math-block">$$${trimmed}$$</div>`;
-    });
-
-    processed = processed.replace(/\$([^\$\n]+?)\$/g, (_, content) => {
-      const trimmed = content.trim();
-      return `<span class="math-inline">$${trimmed}$</span>`;
-    });
-
-    processed = processed.replace(
-      /```(\w+)?\n([\s\S]*?)```/g,
-      (_, lang, code) => {
-        const language = lang || "text";
-        return `<pre><code class="language-${language}">${code.trim()}</code></pre>`;
-      }
-    );
-
-    processed = processed.replace(/`([^`]+)`/g, "<code>$1</code>");
-    processed = processed.replace(/^### (.*$)/gm, "<h3>$1</h3>");
-    processed = processed.replace(/^## (.*$)/gm, "<h2>$1</h2>");
-    processed = processed.replace(/^# (.*$)/gm, "<h1>$1</h1>");
-    processed = processed.replace(
-      /\*\*\*(.*?)\*\*\*/g,
-      "<strong><em>$1</em></strong>"
-    );
-    processed = processed.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
-    processed = processed.replace(/\*(.*?)\*/g, "<em>$1</em>");
-    processed = processed.replace(/~~(.*?)~~/g, "<del>$1</del>");
-    processed = processed.replace(
-      /\[([^\]]+)\]\(([^)]+)\)/g,
-      '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>'
-    );
-    processed = processed.replace(/^\d+\.\s(.+)/gm, "<li>$1</li>");
-    processed = processed.replace(/(<li>.*<\/li>\s*)+/g, "<ol>$&</ol>");
-    processed = processed.replace(/^[-*+]\s(.+)/gm, "<li>$1</li>");
-    processed = processed.replace(/(<li>.*<\/li>\s*)+/g, (match) => {
-      if (match.includes("<ol>")) return match;
-      return `<ul>${match}</ul>`;
-    });
-    processed = processed.replace(/^>\s(.+)/gm, "<blockquote>$1</blockquote>");
-    processed = processed.replace(/^---$/gm, "<hr>");
-    processed = processed.replace(/\n\n/g, "</p><p>");
-    processed = `<p>${processed}</p>`;
-
-    processed = processed.replace(/<p><\/p>/g, "");
-    processed = processed.replace(/<p>(<h[1-6]>)/g, "$1");
-    processed = processed.replace(/(<\/h[1-6]>)<\/p>/g, "$1");
-    processed = processed.replace(/<p>(<[ou]l>)/g, "$1");
-    processed = processed.replace(/(<\/[ou]l>)<\/p>/g, "$1");
-
-    return sanitizeHtml(processed, {
-      allowedTags: [
-        "h1",
-        "h2",
-        "h3",
-        "p",
-        "a",
-        "ul",
-        "ol",
-        "li",
-        "blockquote",
-        "code",
-        "pre",
-        "hr",
-        "strong",
-        "em",
-        "div",
-        "span",
-        "del",
-      ],
-      allowedAttributes: {
-        a: ["href", "target", "rel"],
-        div: ["class"],
-        span: ["class"],
-        code: ["class"],
-        pre: ["class"],
-      },
-    });
-  };
+// (Removed duplicate processMarkdown function)
 
   useEffect(() => {
     if (editorRef.current && !editorViewRef.current && user) {
       try {
         const userColors = [
-          "#e74c3c",
-          "#3498db",
-          "#2ecc71",
-          "#f39c12",
-          "#9b59b6",
-          "#1abc9c",
-          "#e67e22",
-          "#34495e",
-          "#f1c40f",
-          "#e91e63",
-          "#ff5722",
-          "#795548",
-          "#607d8b",
-          "#ff9800",
-          "#4caf50",
+          "#e74c3c", "#3498db", "#2ecc71", "#f39c12", "#9b59b6", "#1abc9c",
+          "#e67e22", "#34495e", "#f1c40f", "#e91e63", "#ff5722", "#795548",
+          "#607d8b", "#ff9800", "#4caf50",
         ];
         const colorIndex = user.id
           ? user.id
@@ -720,271 +717,136 @@ const MergedMarkdownEditor: React.FC<MarkdownEditorProps> = ({
           color: userColor,
           colorLight: userColor + "40",
           id: user?.id,
+
           avatar: user?.imageUrl || null,
         };
+
+      const updateListener = EditorView.updateListener.of((update) => {
+        if (update.selectionSet) {
+          const selection = update.state.selection.main;
+          if (selection.empty) {
+            dismissCommentButton();
+          } else {
+            const text = update.state.sliceDoc(selection.from, selection.to).trim();
+            if (text.length > 2) {
+              const domRect = editorViewRef.current?.coordsAtPos(selection.to);
+              const editorRect = editorRef.current?.getBoundingClientRect();
+              if (domRect && editorRect) {
+                showCommentButton(
+                  text,
+                  {
+                    x: domRect.right + 5,
+                    y: domRect.top + (domRect.bottom - domRect.top) / 2
+                  },
+                  { from: selection.from, to: selection.to }
+                );
+              }
+            } else {
+              dismissCommentButton();
+            }
+          }
+        }
+      });
+
+      const startState = EditorState.create({
+        doc: ytext.toString(),
+        extensions: [
+          keymap.of([...defaultKeymap, ...historyKeymap, ...yUndoManagerKeymap]),
+          history(),
+          markdown(),
+          EditorView.lineWrapping,
+          lineNumbers(),
+          darkMode ? oneDark : [],
+          yCollab(ytext, provider.awareness, { undoManager: new Y.UndoManager(ytext) }),
+          updateListener,
+          commentDecorationField,
+          EditorView.domEventHandlers({
+            mousedown: (event, view) => {
+                const target = event.target as HTMLElement;
+                const highlight = target.closest('.cm-comment-highlight');
+    
+                if (highlight) {
+                    const commentId = highlight.getAttribute('data-comment-id');
+                    if (commentId) {
+                        event.preventDefault();
+                        setIsCommentSidebarOpen(true);
+                        handleSetActiveComment(commentId);
+                        return true;
+                    }
+                }
+                return false;
+            }
+        }),
+          EditorView.theme({
+            "&": {
+              backgroundColor: darkMode ? "#1a202c" : "white",
+              color: darkMode ? "#e2e8f0" : "#1a202c",
+              fontSize: "14px",
+            },
+            ".cm-content": {
+              caretColor: darkMode ? "#60a5fa" : "#2563eb",
+              padding: "10px",
+              minHeight: "200px",
+              whiteSpace: "pre-wrap",
+              wordWrap: "break-word",
+              overflowWrap: "break-word",
+            },
+            ".cm-line": {
+              whiteSpace: "pre-wrap",
+              wordWrap: "break-word",
+              overflowWrap: "break-word",
+            },
+            ".cm-focused": {
+              outline: "none",
+            },
+            ".cm-cursor, .cm-dropCursor": {
+              borderLeft: `2px solid ${darkMode ? "#60a5fa" : "#2563eb"} !important`,
+              marginLeft: "-1px !important",
+              height: "1.2em !important",
+              animation: "cm-blink 1.2s infinite !important",
+            },
+            ".cm-focused .cm-cursor": {
+              borderLeft: `2px solid ${darkMode ? "#60a5fa" : "#2563eb"} !important`,
+              display: "block !important",
+            },
+            ".cm-gutters": {
+              backgroundColor: darkMode ? "#2d3748" : "#f7fafc",
+              color: darkMode ? "#a0aec0" : "#718096",
+              borderRight: darkMode ? "1px solid #4a5568" : "1px solid #e2e8f0",
+            },
+            ".cm-ySelectionInfo": {
+              position: "absolute !important", top: "-2.2em !important", left: "-2px !important",
+              fontSize: "11px !important", fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important",
+              fontStyle: "normal !important", fontWeight: "500 !important", lineHeight: "1.3 !important",
+              padding: "4px 8px !important", color: "white !important", whiteSpace: "nowrap !important",
+              borderRadius: "6px !important", zIndex: "1000 !important",
+              boxShadow: "0 2px 8px rgba(0,0,0,0.25) !important", border: "1px solid rgba(255,255,255,0.2) !important",
+              backdropFilter: "blur(4px) !important", pointerEvents: "none !important",
+              opacity: "1 !important", transform: "translateX(-50%) !important",
+              display: "block !important", visibility: "visible !important",
+            },
+            ".cm-yCursor": {
+              position: "relative !important", borderLeft: "2px solid !important",
+              marginLeft: "-1px !important", marginRight: "-1px !important",
+              boxSizing: "border-box !important", zIndex: "100 !important",
+              height: "1.2em !important", pointerEvents: "none !important",
+              animation: "y-cursor-blink 1.2s ease-in-out infinite !important",
+              display: "block !important", visibility: "visible !important",
+            },
+            ".cm-ySelection": {
+              borderRadius: "2px !important", opacity: "0.3 !important",
+              pointerEvents: "none !important", display: "block !important",
+              visibility: "visible !important",
+            },
+            "@keyframes y-cursor-blink": { "0%, 50%": { opacity: "1" }, "51%, 100%": { opacity: "0.3" }, },
+            "@keyframes cm-blink": { "0%": { opacity: "1" }, "50%": { opacity: "0" }, "100%": { opacity: "1" }, },
+          })
+        ]
+      });
 
         provider.awareness.setLocalState(null);
         provider.awareness.setLocalStateField("user", userAwarenessInfo);
         provider.awareness.setLocalState({ user: userAwarenessInfo });
-
-        const startState = EditorState.create({
-          doc: ytext.toString(),
-          extensions: [
-            keymap.of([
-              ...defaultKeymap,
-              ...historyKeymap,
-              ...yUndoManagerKeymap,
-            ]),
-            history(),
-            markdown({ codeLanguages: [] }),
-            lineNumbers({
-              formatNumber: (lineNo: number) => {
-                // Debug log to see what line numbers are being requested
-                console.log('Line number requested:', lineNo);
-                // Ensure line numbers start from 1 and are sequential
-                if (lineNo < 1 || !Number.isInteger(lineNo)) {
-                  console.log('Invalid line number filtered out:', lineNo);
-                  return '';
-                }
-                return String(lineNo);
-              },
-            }),
-            EditorView.lineWrapping,
-            darkMode ? oneDark : [],
-            EditorView.updateListener.of((update) => {
-              if (
-                update.docChanged ||
-                update.viewportChanged ||
-                update.heightChanged
-              ) {
-                requestAnimationFrame(() => {
-                  editorViewRef.current?.requestMeasure();
-                });
-              }
-            }),
-            EditorView.domEventHandlers({
-              paste(event, view) {
-                try {
-                  const clipboardData = event.clipboardData;
-                  if (!clipboardData) {
-                    console.log("No clipboard data, allowing default behavior");
-                    return false;
-                  }
-                  const text = clipboardData.getData("text/plain");
-                  console.log("Paste text length:", text?.length);
-                  if (!text || text.length === 0) {
-                    console.log("Empty text, allowing default behavior");
-                    return false;
-                  }
-                  // Check if it's markdown content by looking for markdown patterns
-                  const hasMarkdownPatterns =
-                    /```|#{1,6}\s|^\s*[-*+]\s|\*\*|\*|`|^\s*\d+\.\s|\[.*\]\(.*\)|^>\s/m.test(
-                      text
-                    );
-                  const isLargeText = text.length > 1000; // Lowered threshold for better markdown handling
-
-                  if (
-                    isLargeText ||
-                    (hasMarkdownPatterns && text.split("\n").length > 20)
-                  ) {
-                    console.log(
-                      "Large or complex markdown detected, using safe direct Yjs insertion"
-                    );
-                    console.log(
-                      "Text length:",
-                      text.length,
-                      "Lines:",
-                      text.split("\n").length
-                    );
-                    console.log("Has markdown patterns:", hasMarkdownPatterns);
-
-                    // Prevent default to avoid CodeMirror's built-in paste handling
-                    event.preventDefault();
-
-                    try {
-                      if (!doc || typeof doc.getText !== "function") {
-                        console.warn(
-                          "Yjs doc not available, falling back to default behavior"
-                        );
-                        return false;
-                      }
-                      const currentYtext = doc.getText("codemirror");
-                      if (
-                        !currentYtext ||
-                        typeof currentYtext.insert !== "function"
-                      ) {
-                        console.warn(
-                          "Yjs text not available, falling back to default behavior"
-                        );
-                        return false;
-                      }
-
-                      const state = view.state;
-                      const selection = state.selection.main;
-
-                      // Clean the text while preserving markdown structure
-                      const cleanText = text
-                        .replace(/\r\n/g, "\n")
-                        .replace(/\r/g, "\n")
-                        .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "")
-                        .replace(/\uFEFF/g, "")
-                        .replace(/[^\S\n]{3,}/g, "  "); // Collapse excessive spaces but preserve markdown formatting
-
-                      if (
-                        selection.from < 0 ||
-                        selection.to < selection.from ||
-                        selection.to > currentYtext.length
-                      ) {
-                        console.warn(
-                          "Invalid selection bounds, inserting at end"
-                        );
-                        doc.transact(() => {
-                          currentYtext.insert(
-                            currentYtext.length,
-                            "\n" + cleanText
-                          );
-                        });
-                        return true;
-                      }
-
-                      // Direct Yjs insertion without state switching - preserves markdown rendering
-                      doc.transact(() => {
-                        try {
-                          if (selection.to > selection.from) {
-                            currentYtext.delete(
-                              selection.from,
-                              selection.to - selection.from
-                            );
-                          }
-                          currentYtext.insert(selection.from, cleanText);
-                          console.log(
-                            "Markdown text inserted successfully via direct Yjs insertion"
-                          );
-                        } catch (yjsTransactionError) {
-                          console.error(
-                            "Yjs transaction error:",
-                            yjsTransactionError
-                          );
-                          throw yjsTransactionError;
-                        }
-                      });
-
-                      return true;
-                    } catch (yjsError) {
-                      console.error("Yjs paste error:", yjsError);
-                      return false;
-                    }
-                  }
-                  console.log("Normal text, allowing default behavior");
-                  return false;
-                } catch (error) {
-                  console.error("Paste handler error:", error);
-                  return false;
-                }
-              },
-              copy() {
-                return false;
-              },
-              cut() {
-                return false;
-              },
-            }),
-            yCollab(ytext, provider.awareness, {
-              undoManager: new Y.UndoManager(ytext),
-            }),
-            EditorView.theme({
-              "&": {
-                backgroundColor: darkMode ? "#1a202c" : "white",
-                color: darkMode ? "#e2e8f0" : "#1a202c",
-                fontSize: "14px",
-              },
-              ".cm-content": {
-                caretColor: darkMode ? "#60a5fa" : "#2563eb",
-                padding: "1.5rem",
-                minHeight: "calc(100vh - 240px)",
-                fontSize: "14px",
-                lineHeight: "1.6",
-                maxWidth: "100%",
-                wordWrap: "break-word",
-                overflowWrap: "break-word",
-              },
-              ".cm-gutters": {
-                backgroundColor: darkMode ? "#2d3748" : "#f7fafc",
-                color: darkMode ? "#718096" : "#a0aec0",
-                borderRight: darkMode
-                  ? "1px solid #4a5568"
-                  : "1px solid #e2e8f0",
-                position: "relative",
-              },
-              ".cm-lineNumbers": {
-                color: darkMode ? "#718096" : "#9ca3af",
-                fontSize: "13px",
-                fontFamily: "monospace",
-                position: "relative",
-              },
-              ".cm-gutterElement": {
-                display: "block !important",
-                visibility: "visible !important",
-                position: "relative",
-              },
-              ".cm-activeLineGutter": {
-                backgroundColor: darkMode ? "#4a5568" : "#e5e7eb",
-                color: darkMode ? "#e2e8f0" : "#374151",
-                fontWeight: "500",
-              },
-              ".cm-focused": { outline: "none" },
-              ".cm-cursor, .cm-dropCursor": {
-                borderLeft: `2px solid ${darkMode ? "#60a5fa" : "#2563eb"}`,
-                marginLeft: "-1px",
-                height: "1.2em",
-                animation: "cm-blink 1.2s infinite",
-              },
-              ".cm-ySelectionInfo": {
-                position: "absolute",
-                top: "-2.2em",
-                left: "-2px",
-                fontSize: "11px",
-                fontFamily:
-                  "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-                fontWeight: "500",
-                lineHeight: "1.3",
-                padding: "4px 8px",
-                color: "white",
-                whiteSpace: "nowrap",
-                borderRadius: "6px",
-                zIndex: "1000",
-                boxShadow: "0 2px 8px rgba(0,0,0,0.25)",
-                border: "1px solid rgba(255,255,255,0.2)",
-                backdropFilter: "blur(4px)",
-                pointerEvents: "none",
-              },
-              ".cm-yCursor": {
-                position: "relative",
-                borderLeft: "2px solid",
-                marginLeft: "-1px",
-                marginRight: "-1px",
-                boxSizing: "border-box",
-                zIndex: "100",
-                height: "1.2em",
-                animation: "y-cursor-blink 1.2s ease-in-out infinite",
-              },
-              ".cm-ySelection": {
-                borderRadius: "2px",
-                opacity: "0.3",
-                pointerEvents: "none",
-              },
-              "@keyframes y-cursor-blink": {
-                "0%, 50%": { opacity: "1" },
-                "51%, 100%": { opacity: "0.3" },
-              },
-              "@keyframes cm-blink": {
-                "0%": { opacity: "1" },
-                "50%": { opacity: "0" },
-                "100%": { opacity: "1" },
-              },
-            }),
-          ],
-        });
 
         editorViewRef.current = new EditorView({
           state: startState,
@@ -1118,19 +980,11 @@ const MergedMarkdownEditor: React.FC<MarkdownEditorProps> = ({
     }
   };
 
-  const EditorToolbarButton: React.FC<{
-    onClick: () => void;
-    icon: LucideIcon;
-    label: string;
-    disabled?: boolean;
-  }> = ({ onClick, icon: Icon, label, disabled = false }) => (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      className={`p-2 rounded transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed ${
-        darkMode
-          ? "text-gray-300 hover:bg-gray-700"
-          : "text-gray-700 hover:bg-gray-200"
+  const EditorToolbarButton: React.FC<{ onClick: () => void; icon: LucideIcon; label: string; disabled?: boolean; }> = ({ onClick, icon: Icon, label, disabled = false }) => (
+    <button onClick={onClick} disabled={disabled} className={`p-2 rounded transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed ${
+        darkMode 
+          ? 'text-gray-300 hover:bg-gray-700' 
+          : 'text-gray-700 hover:bg-gray-200'
       }`}
       title={label}
       aria-label={label}
@@ -1144,7 +998,7 @@ const MergedMarkdownEditor: React.FC<MarkdownEditorProps> = ({
   return (
     <MathJaxContext config={mathJaxConfig}>
       <div
-        className={`markflow-editor flex flex-col h-screen ${
+        className={`markflow-editor flex flex-col h-screen max-w-full overflow-hidden ${
           darkMode ? "bg-gray-900 text-gray-100" : "bg-white text-gray-800"
         } ${isFullScreen ? "fixed inset-0 z-50" : "relative"}`}
       >
@@ -1155,6 +1009,7 @@ const MergedMarkdownEditor: React.FC<MarkdownEditorProps> = ({
               : "bg-white border-gray-200"
           } border-b px-4 py-3`}
         >
+          {/* Header content remains the same */}
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center space-x-3">
               {getConnectionStatusDisplay()}
@@ -1272,7 +1127,6 @@ const MergedMarkdownEditor: React.FC<MarkdownEditorProps> = ({
                 )}
               </div>
               
-              {/* Comment Toggle Button */}
               <button
                 onClick={() => setIsCommentSidebarOpen(!isCommentSidebarOpen)}
                 className={`flex items-center px-3 py-2 text-sm rounded-lg transition-colors ${
@@ -1414,6 +1268,7 @@ const MergedMarkdownEditor: React.FC<MarkdownEditorProps> = ({
               : "bg-white border-gray-200"
           } border-b px-4 py-2`}
         >
+          {/* Toolbar content remains the same */}
           <div className="flex items-center space-x-1">
             <EditorToolbarButton
               onClick={() => insertTextAtCursor("**", 2)}
@@ -1460,11 +1315,43 @@ const MergedMarkdownEditor: React.FC<MarkdownEditorProps> = ({
               icon={MathIcon}
               label="Math Block"
             />
+            <EditorToolbarButton
+              onClick={() => insertTextAtCursor("| Header 1 | Header 2 |\n|----------|----------|\n| Cell 1   | Cell 2   |", 2)}
+              icon={Table}
+              label="Table"
+            />
+            <EditorToolbarButton
+              onClick={() => insertTextAtCursor("[^1]", 3)}
+              icon={Hash}
+              label="Footnote"
+            />
+            <EditorToolbarButton
+              onClick={() => insertTextAtCursor("~~", 2)}
+              icon={Strikethrough}
+              label="Strikethrough"
+            />
+            <EditorToolbarButton
+              onClick={() => insertTextAtCursor("~", 1)}
+              icon={Subscript}
+              label="Subscript"
+            />
+            <EditorToolbarButton
+              onClick={() => insertTextAtCursor("^", 1)}
+              icon={Superscript}
+              label="Superscript"
+            />
           </div>
         </div>
-        <div className="flex flex-1 overflow-hidden">
+
+        {/* --- MAIN CONTENT WITH SIDEBAR LAYOUT --- */}
+        <div className={`flex flex-1 overflow-hidden transition-all duration-300 ${
+          isDocumentSidebarOpen ? 'pl-0' : ''
+        } ${
+          isCommentSidebarOpen ? 'pr-0' : ''
+        }`}>
+          {/* Editor Pane */}
           <div
-            className={`markflow-editor-pane transition-all duration-300 overflow-hidden ${
+            className={`transition-all duration-300 ${
               showPreview ? "w-1/2" : "w-full"
             }`}
           >
@@ -1479,9 +1366,14 @@ const MergedMarkdownEditor: React.FC<MarkdownEditorProps> = ({
                 WebkitUserSelect: "text",
                 userSelect: "text",
                 cursor: "text",
+                wordWrap: "break-word",
+                overflowWrap: "break-word",
+                whiteSpace: "pre-wrap",
               }}
             />
           </div>
+
+          {/* Preview Pane */}
           {showPreview && (
             <div
               className={`markflow-preview w-1/2 h-full flex flex-col border-l transition-all duration-300 ${
@@ -1502,15 +1394,19 @@ const MergedMarkdownEditor: React.FC<MarkdownEditorProps> = ({
                   <div className="flex items-center space-x-2">
                     <div
                       className={`w-2 h-2 rounded-full ${
-                        compiledContent === markdownContent
+                        isProcessing
+                          ? "bg-yellow-500"
+                          : processedContent
                           ? "bg-green-500"
-                          : "bg-yellow-500"
+                          : "bg-gray-400"
                       }`}
                     ></div>
                     <span className="text-xs">
-                      {compiledContent === markdownContent
+                      {isProcessing
+                        ? "Processing..."
+                        : processedContent
                         ? "Up to date"
-                        : "Needs compile"}
+                        : "Not compiled"}
                     </span>
                     <Eye className="w-4 h-4" />
                   </div>
@@ -1526,62 +1422,30 @@ const MergedMarkdownEditor: React.FC<MarkdownEditorProps> = ({
                 }}
               >
                 <div className="flex-1 p-6">
-                  {compiledContent ? (
+                  {isProcessing ? (
+                    <div className={`flex flex-col items-center justify-center h-64 ${
+                      darkMode ? "text-gray-400" : "text-gray-500"
+                    }`}>
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mb-4"></div>
+                      <p className="text-sm">Processing markdown...</p>
+                    </div>
+                  ) : processedContent ? (
                     <MathJaxContext config={mathJaxConfig}>
                       <MathJax>
-                        <div className="preview-content">
-                          {compiledContent.split("\n").map((line, index) => {
-                            const lineNumber = index + 1;
-                            const processedLine = processMarkdown(line);
-                            return (
-                              <div
-                                key={lineNumber}
-                                className={`preview-line leading-6 ${
-                                  darkMode ? "text-gray-200" : "text-gray-800"
-                                }`}
-                                data-line={lineNumber}
-                                style={{
-                                  minHeight: "1.5rem",
-                                  wordWrap: "break-word",
-                                  overflowWrap: "break-word",
-                                  whiteSpace: "pre-wrap",
-                                  paddingTop: "0.125rem",
-                                }}
-                              >
-                                {line.trim() === "" ? (
-                                  <span
-                                    style={{
-                                      height: "1.5rem",
-                                      display: "block",
-                                    }}
-                                  >
-                                    &nbsp;
-                                  </span>
-                                ) : (
-                                  <span
-                                    className={`prose prose-lg max-w-none inline-block w-full ${
-                                      darkMode ? "prose-invert" : ""
-                                    }`}
-                                    style={{
-                                      fontSize: "16px",
-                                      lineHeight: "1.5",
-                                      wordWrap: "break-word",
-                                      overflowWrap: "break-word",
-                                      whiteSpace: "pre-wrap",
-                                    }}
-                                    dangerouslySetInnerHTML={{
-                                      __html:
-                                        processedLine.replace(
-                                          /<p>|<\/p>/g,
-                                          ""
-                                        ) || "&nbsp;",
-                                    }}
-                                  />
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
+                        <div 
+                          className={`prose prose-lg max-w-none ${
+                            darkMode ? "prose-invert" : ""
+                          }`}
+                          style={{
+                            fontSize: "16px",
+                            lineHeight: "1.6",
+                            wordWrap: "break-word",
+                            overflowWrap: "break-word",
+                          }}
+                          dangerouslySetInnerHTML={{
+                            __html: processedContent
+                          }}
+                        />
                       </MathJax>
                     </MathJaxContext>
                   ) : (
@@ -1607,6 +1471,8 @@ const MergedMarkdownEditor: React.FC<MarkdownEditorProps> = ({
             </div>
           )}
         </div>
+        {/* --- FIX ENDS HERE --- */}
+
         <div
           className={`border-t px-4 py-2 text-xs transition-colors duration-200 ${
             darkMode
@@ -1614,6 +1480,7 @@ const MergedMarkdownEditor: React.FC<MarkdownEditorProps> = ({
               : "bg-gray-100 border-gray-200 text-gray-500"
           }`}
         >
+          {/* Footer content remains the same */}
           <div className="flex justify-between items-center">
             <div className="flex items-center space-x-4">
               <span>Lines: {markdownContent.split("\n").length}</span>
@@ -1667,12 +1534,294 @@ const MergedMarkdownEditor: React.FC<MarkdownEditorProps> = ({
         </div>
       </div>
       <style jsx global>{`
+        /* Container width constraints */
+        .markflow-editor {
+          max-width: 100vw !important;
+          width: 100% !important;
+          overflow-x: hidden !important;
+        }
+        
+        /* Editor and preview width constraints */
+        .markflow-codemirror {
+          max-width: 100% !important;
+          overflow-x: auto !important;
+        }
+        
+        .markflow-preview {
+          max-width: 50% !important;
+          overflow-x: auto !important;
+        }
+
+        /* Text wrapping for CodeMirror editor */
+        .cm-editor {
+          white-space: pre-wrap !important;
+          word-wrap: break-word !important;
+          overflow-wrap: break-word !important;
+        }
+        
+        .cm-line {
+          white-space: pre-wrap !important;
+          word-wrap: break-word !important;
+          overflow-wrap: break-word !important;
+        }
+
+        /* Comment sidebar layout adjustments */
+        .pr-80 {
+          padding-right: 20rem !important;
+          transition: padding-right 0.3s ease !important;
+        }
+        
+        /* Document sidebar layout adjustments */
+        .pl-64 {
+          padding-left: 16rem !important;
+          transition: padding-left 0.3s ease !important;
+        }
+        
+        /* Responsive width adjustments for comment sidebar */
+        .pr-80 .markflow-codemirror,
+        .pr-80 .markflow-preview {
+          max-width: calc(50% - 10rem) !important;
+        }
+        
+        /* Responsive width adjustments for document sidebar */
+        .pl-64 .markflow-codemirror,
+        .pl-64 .markflow-preview {
+          max-width: calc(50% - 8rem) !important;
+        }
+        
+        /* Combined sidebar adjustments */
+        .pl-64.pr-80 .markflow-codemirror,
+        .pl-64.pr-80 .markflow-preview {
+          max-width: calc(50% - 18rem) !important;
+        }
+        
+        /* Ensure proper text wrapping in narrow widths */
+        @media (max-width: 1200px) {
+          .pr-80 {
+            padding-right: 16rem !important;
+          }
+          .pl-64 {
+            padding-left: 14rem !important;
+          }
+        }
+        
+        @media (max-width: 1024px) {
+          .pr-80 {
+            padding-right: 14rem !important;
+          }
+          .pl-64 {
+            padding-left: 12rem !important;
+          }
+        }
+
+        /* Table styles for GitHub Flavored Markdown */
+        .prose table {
+          border-collapse: collapse !important;
+          width: 100% !important;
+          margin: 1.5rem 0 !important;
+          border: 1px solid ${darkMode ? "#4a5568" : "#e5e7eb"} !important;
+          border-radius: 0.5rem !important;
+          overflow: hidden !important;
+        }
+        .prose thead {
+          background-color: ${darkMode ? "#2d3748" : "#f9fafb"} !important;
+        }
+        .prose th {
+          padding: 0.75rem 1rem !important;
+          text-align: left !important;
+          font-weight: 600 !important;
+          border-bottom: 2px solid ${darkMode ? "#4a5568" : "#d1d5db"} !important;
+          border-right: 1px solid ${darkMode ? "#4a5568" : "#e5e7eb"} !important;
+          color: ${darkMode ? "#f7fafc" : "#374151"} !important;
+        }
+        .prose th:last-child {
+          border-right: none !important;
+        }
+        .prose td {
+          padding: 0.75rem 1rem !important;
+          border-bottom: 1px solid ${darkMode ? "#4a5568" : "#e5e7eb"} !important;
+          border-right: 1px solid ${darkMode ? "#4a5568" : "#e5e7eb"} !important;
+          color: ${darkMode ? "#e2e8f0" : "#374151"} !important;
+        }
+        .prose td:last-child {
+          border-right: none !important;
+        }
+        .prose tbody tr:hover {
+          background-color: ${darkMode ? "rgba(74, 85, 104, 0.3)" : "rgba(249, 250, 251, 0.8)"} !important;
+        }
+        .prose tbody tr:last-child td {
+          border-bottom: none !important;
+        }
+
+        /* Task list styles */
+        .prose .task-list-item {
+          list-style: none !important;
+          margin-left: -1.5rem !important;
+          padding-left: 0 !important;
+          display: flex !important;
+          align-items: flex-start !important;
+          gap: 0.5rem !important;
+        }
+        .prose .task-list-item input[type="checkbox"] {
+          margin: 0.25rem 0 0 0 !important;
+          accent-color: ${darkMode ? "#63b3ed" : "#3b82f6"} !important;
+          cursor: pointer !important;
+        }
+        .prose .task-list-item input[type="checkbox"]:checked + span {
+          text-decoration: line-through !important;
+          color: ${darkMode ? "#a0aec0" : "#6b7280"} !important;
+        }
+
+        /* Syntax highlighting styles */
+        .prose .hljs {
+          display: block !important;
+          overflow-x: auto !important;
+          padding: 1rem !important;
+          background-color: ${darkMode ? "#2d3748" : "#f8fafc"} !important;
+          color: ${darkMode ? "#e2e8f0" : "#334155"} !important;
+          border-radius: 0.5rem !important;
+          font-size: 0.875rem !important;
+          line-height: 1.5 !important;
+        }
+        .prose .hljs-comment,
+        .prose .hljs-quote {
+          color: ${darkMode ? "#a0aec0" : "#64748b"} !important;
+          font-style: italic !important;
+        }
+        .prose .hljs-keyword,
+        .prose .hljs-selector-tag,
+        .prose .hljs-subst {
+          color: ${darkMode ? "#f687b3" : "#db2777"} !important;
+          font-weight: 600 !important;
+        }
+        .prose .hljs-number,
+        .prose .hljs-literal,
+        .prose .hljs-variable,
+        .prose .hljs-template-variable,
+        .prose .hljs-tag .hljs-attr {
+          color: ${darkMode ? "#fbb6ce" : "#be185d"} !important;
+        }
+        .prose .hljs-string,
+        .prose .hljs-doctag {
+          color: ${darkMode ? "#68d391" : "#059669"} !important;
+        }
+        .prose .hljs-title,
+        .prose .hljs-section,
+        .prose .hljs-selector-id {
+          color: ${darkMode ? "#63b3ed" : "#3b82f6"} !important;
+          font-weight: 600 !important;
+        }
+        .prose .hljs-subst {
+          font-weight: normal !important;
+        }
+        .prose .hljs-type,
+        .prose .hljs-class .hljs-title {
+          color: ${darkMode ? "#fbb6ce" : "#be185d"} !important;
+          font-weight: 600 !important;
+        }
+        .prose .hljs-tag,
+        .prose .hljs-name,
+        .prose .hljs-attribute {
+          color: ${darkMode ? "#81e6d9" : "#0891b2"} !important;
+          font-weight: normal !important;
+        }
+        .prose .hljs-regexp,
+        .prose .hljs-link {
+          color: ${darkMode ? "#f6ad55" : "#ea580c"} !important;
+        }
+        .prose .hljs-symbol,
+        .prose .hljs-bullet {
+          color: ${darkMode ? "#a78bfa" : "#7c3aed"} !important;
+        }
+        .prose .hljs-built_in,
+        .prose .hljs-builtin-name {
+          color: ${darkMode ? "#fbb6ce" : "#be185d"} !important;
+        }
+        .prose .hljs-meta {
+          color: ${darkMode ? "#a0aec0" : "#64748b"} !important;
+        }
+        .prose .hljs-deletion {
+          background-color: ${darkMode ? "rgba(252, 165, 165, 0.2)" : "rgba(254, 202, 202, 0.3)"} !important;
+        }
+        .prose .hljs-addition {
+          background-color: ${darkMode ? "rgba(167, 243, 208, 0.2)" : "rgba(187, 247, 208, 0.3)"} !important;
+        }
+        .prose .hljs-emphasis {
+          font-style: italic !important;
+        }
+        .prose .hljs-strong {
+          font-weight: bold !important;
+        }
+
+        /* Enhanced list styles */
+        .prose ul ul,
+        .prose ul ol,
+        .prose ol ul,
+        .prose ol ol {
+          margin-top: 0.5rem !important;
+          margin-bottom: 0.5rem !important;
+        }
+        .prose ul li {
+          position: relative !important;
+        }
+        .prose ul li::marker {
+          color: ${darkMode ? "#63b3ed" : "#3b82f6"} !important;
+        }
+        .prose ol li::marker {
+          color: ${darkMode ? "#63b3ed" : "#3b82f6"} !important;
+          font-weight: 600 !important;
+        }
+
+        /* Enhanced inline code styles */
+        .prose :not(pre) > code {
+          font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace !important;
+          font-weight: 500 !important;
+        }
+
+        /* Footnote styles */
+        .prose .footnote-ref {
+          color: ${darkMode ? "#63b3ed" : "#3b82f6"} !important;
+          text-decoration: none !important;
+          font-size: 0.75rem !important;
+          vertical-align: super !important;
+          font-weight: 600 !important;
+        }
+        .prose .footnote-ref:hover {
+          text-decoration: underline !important;
+        }
+        .prose .footnotes {
+          margin-top: 2rem !important;
+          padding-top: 1rem !important;
+          border-top: 1px solid ${darkMode ? "#4a5568" : "#e5e7eb"} !important;
+          font-size: 0.875rem !important;
+        }
+        .prose .footnotes ol {
+          padding-left: 1rem !important;
+        }
+        .prose .footnote-backref {
+          color: ${darkMode ? "#63b3ed" : "#3b82f6"} !important;
+          text-decoration: none !important;
+          margin-left: 0.5rem !important;
+        }
+
         .cm-editor .cm-cursor {
           border-left: 2px solid #60a5fa !important;
           margin-left: -1px !important;
           height: 1.2em !important;
           animation: cm-blink 1.2s infinite !important;
           display: block !important;
+        }
+
+        .cm-comment-highlight {
+          background-color: rgba(99, 179, 237, 0.2);
+          border-bottom: 2px solid rgba(99, 179, 237, 0.6);
+          cursor: pointer;
+        }
+        
+        .cm-comment-highlight-active {
+          background-color: rgba(99, 179, 237, 0.4);
+          border-bottom: 2px solid rgba(99, 179, 237, 0.9);
+          cursor: pointer;
         }
         .cm-editor.cm-focused .cm-cursor {
           border-left: 2px solid #60a5fa !important;
@@ -1755,6 +1904,7 @@ const MergedMarkdownEditor: React.FC<MarkdownEditorProps> = ({
           max-width: 100% !important;
           word-wrap: break-word !important;
           overflow-wrap: break-word !important;
+          white-space: pre-wrap !important;
           -webkit-user-select: text !important;
           user-select: text !important;
           cursor: text !important;
@@ -1887,6 +2037,80 @@ const MergedMarkdownEditor: React.FC<MarkdownEditorProps> = ({
             ? "rgba(99, 179, 237, 0.1)"
             : "rgba(59, 130, 246, 0.05)"} !important;
           border-radius: 0 0.25rem 0.25rem 0 !important;
+          position: relative !important;
+        }
+        
+        .prose blockquote::before {
+          content: 'Reviewer Comment' !important;
+          font-style: normal !important;
+          font-weight: bold !important;
+          display: block !important;
+          margin-bottom: 0.5rem !important;
+          color: ${darkMode ? "#63b3ed" : "#3b82f6"} !important;
+          font-size: 0.875rem !important;
+          text-transform: uppercase !important;
+          letter-spacing: 0.05em !important;
+        }
+        
+        .prose blockquote p {
+          margin-bottom: 0.75rem !important;
+        }
+        
+        .prose table {
+          width: 100% !important;
+          border-collapse: collapse !important;
+          margin: 1.5rem 0 !important;
+          font-size: 0.875rem !important;
+        }
+        
+        .prose th {
+          background-color: ${darkMode ? "#2d3748" : "#f8fafc"} !important;
+          border: 1px solid ${darkMode ? "#4a5568" : "#e2e8f0"} !important;
+          padding: 0.75rem !important;
+          text-align: left !important;
+          font-weight: 600 !important;
+          color: ${darkMode ? "#e2e8f0" : "#374151"} !important;
+        }
+        
+        .prose td {
+          border: 1px solid ${darkMode ? "#4a5568" : "#e2e8f0"} !important;
+          padding: 0.75rem !important;
+          color: ${darkMode ? "#e2e8f0" : "#374151"} !important;
+        }
+        
+        .prose tr:nth-child(even) {
+          background-color: ${darkMode ? "rgba(45, 55, 72, 0.3)" : "rgba(248, 250, 252, 0.5)"} !important;
+        }
+        
+        .prose .footnotes {
+          margin-top: 2rem !important;
+          padding-top: 1rem !important;
+          border-top: 1px solid ${darkMode ? "#4a5568" : "#e2e8f0"} !important;
+          font-size: 0.875rem !important;
+          color: ${darkMode ? "#a0aec0" : "#6b7280"} !important;
+        }
+        
+        .prose .footnotes ol {
+          margin-left: 1rem !important;
+        }
+        
+        .prose .footnotes li {
+          margin-bottom: 0.25rem !important;
+        }
+        
+        .prose sub {
+          font-size: 0.75em !important;
+          vertical-align: sub !important;
+        }
+        
+        .prose sup {
+          font-size: 0.75em !important;
+          vertical-align: super !important;
+        }
+        
+        .prose abbr {
+          border-bottom: 1px dotted ${darkMode ? "#a0aec0" : "#6b7280"} !important;
+          cursor: help !important;
         }
         .prose hr {
           border: none !important;
@@ -1983,28 +2207,25 @@ const MergedMarkdownEditor: React.FC<MarkdownEditorProps> = ({
         }
       `}</style>
 
-      {/* Comment Button - appears when text is selected */}
       <CommentButton
-        isVisible={isCommentButtonVisible}
-        position={buttonPosition}
-        selectedText={selectedText}
-        selectionPosition={selectionPosition}
-        onAddComment={handleAddComment}
-        onDismiss={dismissCommentButton}
+        isVisible={commentButtonState.isVisible}
+        position={commentButtonState.position}
+        onClick={() => setIsCommentSidebarOpen(true)}
       />
 
-      {/* Comment Sidebar */}
       <CommentSidebar
         isOpen={isCommentSidebarOpen}
-        onClose={handleCloseCommentSidebar}
-        documentId={documentId}
-        selectedText={selectedTextForComment}
+        onClose={() => {
+          setIsCommentSidebarOpen(false);
+          dismissCommentButton();
+        }}
         comments={comments}
-        onCommentCreate={handleCommentCreate}
-        onCommentUpdate={handleCommentUpdate}
-        onCommentDelete={handleCommentDelete}
-        onRefresh={fetchComments}
+        onCommentAction={handleCommentAction}
+        selectedText={commentButtonState.isVisible ? commentButtonState.selectedText : undefined}
+        selection={commentButtonState.selection}
         darkMode={darkMode}
+        activeCommentId={activeCommentId || undefined}
+        setActiveCommentId={(id) => handleSetActiveComment(id || null)}
       />
     </MathJaxContext>
   );
