@@ -1,3 +1,4 @@
+// src/lib/mongodb/schemas/folderSchema.ts
 import { Schema } from 'mongoose';
 
 export const folderSchema = new Schema(
@@ -27,14 +28,20 @@ export const folderSchema = new Schema(
       type: Schema.Types.ObjectId, 
       ref: 'Note' 
     }],
+    // START: New field for files
+    files: [{ 
+      type: Schema.Types.ObjectId, 
+      ref: 'File' 
+    }],
+    // END: New field for files
     isArchived: { 
       type: Boolean, 
       default: false 
     },
     color: { 
       type: String,
-      default: '#6366f1', // Default indigo color
-      match: /^#([0-9A-F]{3}){1,2}$/i // Hex color validation
+      default: '#6366f1',
+      match: /^#([0-9A-F]{3}){1,2}$/i
     },
     icon: { 
       type: String,
@@ -52,16 +59,13 @@ export const folderSchema = new Schema(
   }
 );
 
-// Indexes for better performance
-// Using schema.index() method only, not duplicating with field-level index: true
 folderSchema.index({ workspace: 1 });
 folderSchema.index({ parent: 1 });
 folderSchema.index({ creator: 1 });
 folderSchema.index({ createdAt: -1 });
 folderSchema.index({ isArchived: 1 });
-folderSchema.index({ workspace: 1, parent: 1 }); // Compound index for folder hierarchy
+folderSchema.index({ workspace: 1, parent: 1 });
 
-// Prevent circular references in folder hierarchy
 folderSchema.pre('save', async function(next) {
   if (this.parent && this.parent.toString() === this._id.toString()) {
     const error = new Error('Folder cannot be its own parent');

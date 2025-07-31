@@ -9,6 +9,10 @@ import { FileText, Plus, Clock, Search, Filter, Grid, List, Bookmark, Users, Set
 import Link from 'next/link'
 import DashboardDocuments from '../components/DashboardDocuments'
 import ChatLauncher from '../components/ChatLauncher';
+import WorkspaceChat from '@/lib/mongodb/models/WorkspaceChat'
+//import Workspace from '@/lib/mongodb/models/Workspace' // ✅ needed so it's registered
+import ChatMessage from '@/lib/mongodb/models/ChatMessage'
+//import User from '@/lib/mongodb/models/User'
 
 interface DashboardNote {
   _id: string
@@ -437,7 +441,7 @@ export default async function Dashboard() {
                               </div>
                             ))}
                             {workspace.collaborators.length > 3 && (
-                              <div className="inline-block h-6 w-6 rounded-full ring-2 ring-white bg-gray-200 flex items-center justify-center">
+                              <div className=" h-6 w-6 rounded-full ring-2 ring-white bg-gray-200 flex items-center justify-center">
                                 <span className="text-xs font-medium text-gray-600">
                                   +{workspace.collaborators.length - 3}
                                 </span>

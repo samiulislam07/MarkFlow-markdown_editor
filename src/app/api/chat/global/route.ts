@@ -1,27 +1,47 @@
-import { auth } from '@clerk/nextjs/server'
-import { getGlobalUserChat } from '@/lib/services/chatService'
+import { currentUser } from '@clerk/nextjs/server'
 import { connectToDatabase } from '@/lib/mongodb/connect'
-import { NextResponse } from 'next/server'
+import User from '@/lib/mongodb/models/User'
+import Workspace from '@/lib/mongodb/models/Workspace'
 
-export async function GET() {
-  try {
-    const { userId } = await auth();
-        if (!userId) {
-          return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-        }
+export async function GET(req: Request) {
+  await connectToDatabase()
 
-    await connectToDatabase()
-    const messages = await getGlobalUserChat(userId)
+  const clerkUser = await currentUser()
+  if (!clerkUser) return new Response('Unauthorized', { status: 401 })
 
-    const formatted = messages.map(msg => ({
-      sender: { firstName: msg.sender.firstName || 'Unknown' },
-      text: msg.message,
-      timestamp: msg.timestamp,
-    }))
+  // Get MongoDB user document
+  const dbUser = await User.findOne({ clerkId: clerkUser.id })
+  if (!dbUser || !dbUser._id) return new Response('User not found', { status: 404 })
 
-    return NextResponse.json(formatted)
-  } catch (error) {
-    console.error('Error in /chat/global:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
-  }
+  // Fetch all workspaces where user is owner or collaborator
+  const workspaces = await Workspace.find({
+    $or: [
+      { owner: dbUser._id },
+      { 'collaborators.user': dbUser._id }
+    ],
+    isArchived: false
+  })
+    .populate('owner', 'name')
+    .populate('collaborators.user', 'name email')
+    .lean()
+
+  const chatList = workspaces.map(ws => ({
+    _id: (ws._id as string | { toString(): string }).toString(),
+    name: ws.name,
+    isPersonal: ws.isPersonal,
+    participants: [
+      {
+        _id: ws.owner?._id.toString(),
+        name: ws.owner?.name,
+        role: 'owner'
+      },
+      ...(ws.collaborators || []).map((collab: any) => ({
+        _id: collab.user._id.toString(),
+        name: collab.user.name,
+        role: collab.role
+      }))
+    ]
+  }))
+
+  return Response.json(chatList)
 }

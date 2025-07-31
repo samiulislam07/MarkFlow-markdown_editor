@@ -3,9 +3,10 @@ import { connectToDatabase } from '@/lib/mongodb/connect'
 import User from '@/lib/mongodb/models/User'
 import Workspace from '@/lib/mongodb/models/Workspace'
 import Note from '@/lib/mongodb/models/Note'
-import { ArrowLeft, Plus, Users, Settings, FileText, Clock, UserPlus } from 'lucide-react'
+import { ArrowLeft, Plus, Settings, FileText, Clock } from 'lucide-react'
 import Link from 'next/link'
 import WorkspaceCollaborators from '@/app/components/WorkspaceCollaborators'
+import FileManager from '@/app/components/FileManager' // Import the new component
 
 interface WorkspacePageProps {
   params: Promise<{
@@ -47,7 +48,6 @@ export default async function WorkspacePage({ params }: WorkspacePageProps) {
       )
     }
 
-    // Get workspace with collaborators
     const workspaceRaw = await Workspace.findById(id)
       .populate('owner', 'name email avatar')
       .populate('collaborators.user', 'name email avatar')
@@ -67,10 +67,8 @@ export default async function WorkspacePage({ params }: WorkspacePageProps) {
       )
     }
 
-    // Type assertion for workspace data
     const workspaceData = workspaceRaw as any
 
-    // Check if user has access to this workspace
     const isOwner = workspaceData.owner._id.toString() === dbUser._id.toString()
     const isCollaborator = workspaceData.collaborators.some((collab: any) => 
       collab.user._id.toString() === dbUser._id.toString()
@@ -90,7 +88,6 @@ export default async function WorkspacePage({ params }: WorkspacePageProps) {
       )
     }
 
-    // Convert workspace to plain object
     const workspace = {
       _id: workspaceData._id.toString(),
       name: workspaceData.name,
@@ -112,42 +109,7 @@ export default async function WorkspacePage({ params }: WorkspacePageProps) {
         role: collab.role,
         joinedAt: new Date(collab.joinedAt)
       })),
-      settings: workspaceData.settings,
-      createdAt: new Date(workspaceData.createdAt),
-      updatedAt: new Date(workspaceData.updatedAt)
     }
-
-    // Get workspace documents
-    const notesRaw = await Note.find({
-      workspace: id,
-      isArchived: false
-    })
-    .populate('author', 'name email avatar')
-    .populate('lastEditedBy', 'name email avatar')
-    .sort({ lastEditedAt: -1 })
-    .lean()
-
-    const notes = notesRaw.map((note: any) => ({
-      _id: note._id.toString(),
-      title: note.title,
-      content: note.content || '',
-      wordCount: note.wordCount || 0,
-      readingTime: note.readingTime || 0,
-      author: {
-        _id: note.author._id.toString(),
-        name: note.author.name,
-        email: note.author.email,
-        avatar: note.author.avatar
-      },
-      lastEditedBy: note.lastEditedBy ? {
-        _id: note.lastEditedBy._id.toString(),
-        name: note.lastEditedBy.name,
-        email: note.lastEditedBy.email,
-        avatar: note.lastEditedBy.avatar
-      } : note.author,
-      createdAt: new Date(note.createdAt),
-      lastEditedAt: new Date(note.lastEditedAt)
-    }))
 
     const userRole = isOwner ? 'owner' : 
       workspace.collaborators.find((c: any) => c.user._id === dbUser._id.toString())?.role || 'viewer'
@@ -215,98 +177,12 @@ export default async function WorkspacePage({ params }: WorkspacePageProps) {
             userRole={userRole}
           />
 
-          {/* Documents Section */}
-          <div className="bg-white rounded-lg shadow">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center">
-                  <FileText className="w-5 h-5 text-gray-400 mr-2" />
-                  <h2 className="text-lg font-medium text-gray-900">Documents</h2>
-                  <span className="ml-2 inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
-                    {notes.length}
-                  </span>
-                </div>
-                {(userRole === 'owner' || userRole === 'editor') && (
-                  <Link
-                    href={`/editor?workspace=${workspace._id}`}
-                    className="inline-flex items-center px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors"
-                  >
-                    <Plus className="w-4 h-4 mr-1" />
-                    New Document
-                  </Link>
-                )}
-              </div>
-            </div>
-
-            <div className="p-6">
-              {notes.length > 0 ? (
-                <div className="space-y-4">
-                  {notes.map((note) => (
-                    <Link
-                      key={note._id}
-                      href={`/editor/${note._id}`}
-                      className="block bg-gray-50 rounded-lg p-4 hover:bg-gray-100 transition-colors border border-gray-200"
-                    >
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <h3 className="font-medium text-gray-900 mb-1">{note.title}</h3>
-                          {note.content && (
-                            <p className="text-sm text-gray-600 line-clamp-2 mb-2">
-                              {note.content.substring(0, 150)}...
-                            </p>
-                          )}
-                          <div className="flex items-center text-xs text-gray-500 space-x-4">
-                            <span>{note.wordCount} words</span>
-                            <span>{note.readingTime} min read</span>
-                            <div className="flex items-center">
-                              <Clock className="w-3 h-3 mr-1" />
-                              <span>
-                                Last edited {new Date(note.lastEditedAt).toLocaleDateString()}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                        <div className="ml-4 flex items-center">
-                          {note.lastEditedBy.avatar ? (
-                            <img
-                              className="h-6 w-6 rounded-full"
-                              src={note.lastEditedBy.avatar}
-                              alt={note.lastEditedBy.name}
-                              title={`Last edited by ${note.lastEditedBy.name}`}
-                            />
-                          ) : (
-                            <div 
-                              className="h-6 w-6 rounded-full bg-gray-300 flex items-center justify-center"
-                              title={`Last edited by ${note.lastEditedBy.name}`}
-                            >
-                              <span className="text-xs font-medium text-gray-600">
-                                {note.lastEditedBy.name.charAt(0).toUpperCase()}
-                              </span>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </Link>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-8">
-                  <FileText className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                  <h3 className="text-lg font-medium text-gray-900 mb-2">No documents yet</h3>
-                  <p className="text-gray-600 mb-4">Start creating documents in this workspace.</p>
-                  {(userRole === 'owner' || userRole === 'editor') && (
-                    <Link
-                      href={`/editor?workspace=${workspace._id}`}
-                      className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                    >
-                      <Plus className="w-4 h-4 mr-2" />
-                      Create First Document
-                    </Link>
-                  )}
-                </div>
-              )}
-            </div>
+          {/* START: New File Manager Section */}
+          <div className="mt-8">
+            <FileManager workspaceId={workspace._id} userRole={userRole} />
           </div>
+          {/* END: New File Manager Section */}
+
         </div>
       </div>
     )
@@ -329,4 +205,4 @@ export default async function WorkspacePage({ params }: WorkspacePageProps) {
       </div>
     )
   }
-} 
+}

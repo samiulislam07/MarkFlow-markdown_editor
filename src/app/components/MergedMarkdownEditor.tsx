@@ -1,337 +1,948 @@
 'use client';
-
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useUser } from '@clerk/nextjs';
 import { useRouter } from 'next/navigation';
 import {
-  Bold, Italic, Code, Link, List, ListOrdered, Quote, Minus, 
-  Copy, Download, Eye, EyeOff, Maximize, Minimize, Save,
-  FileText, ArrowLeft, Check, AlertCircle, Loader2, Edit3,
-  LucideIcon, Moon, Sun, Palette
+  Bold, Italic, Code, Link, List, ListOrdered, Quote, Minus,
+  Copy, Download, Eye, Maximize, Minimize, Save,
+  ArrowLeft, Check, AlertCircle, Loader2, Edit3,
+  LucideIcon, Moon, Sun, Palette, MessageSquare, Play,
+  Table, Hash, Strikethrough, Subscript, Superscript
 } from 'lucide-react';
-import { EditorState } from '@codemirror/state';
-import { EditorView, keymap } from '@codemirror/view';
+
+import { EditorState, StateField, StateEffect } from '@codemirror/state';
+import { EditorView, keymap, Decoration, DecorationSet, lineNumbers } from '@codemirror/view';
 import { markdown } from '@codemirror/lang-markdown';
 import { oneDark } from '@codemirror/theme-one-dark';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
-import sanitizeHtml from 'sanitize-html';
 import { MathJaxContext, MathJax } from 'better-react-mathjax';
 import { Subscript as MathIcon } from 'lucide-react';
 
+// --- ENHANCED MARKDOWN PARSING IMPORTS ---
+import MarkdownIt from 'markdown-it';
+import mathjax from 'markdown-it-mathjax3';
+import footnote from 'markdown-it-footnote';
+import sub from 'markdown-it-sub';
+import sup from 'markdown-it-sup';
+import abbr from 'markdown-it-abbr';
+
+// --- NEW IMPORTS for Collaboration ---
+import * as Y from 'yjs';
+import { yCollab, yUndoManagerKeymap } from 'y-codemirror.next';
+import YPartyKitProvider from 'y-partykit/provider';
+import { nanoid } from 'nanoid';
+
+// --- ENHANCED MARKDOWN PARSING IMPORTS ---
+import { unified } from 'unified';
+import remarkParse from 'remark-parse';
+import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+import remarkRehype from 'remark-rehype';
+import rehypeSanitize from 'rehype-sanitize';
+import rehypeStringify from 'rehype-stringify';
+import rehypeHighlight from 'rehype-highlight';
+import 'highlight.js/styles/github-dark.css';
+
+// --- UPDATED COMMENTING SYSTEM IMPORTS ---
+import CommentButton from './CommentButton';
+import CommentSidebar, { type CommentAction } from './CommentSidebar';
+import { useCommentSelection } from '@/hooks/useCommentSelection';
+import { CommentData, CreateCommentData } from '@/types/comment';
+
 interface MarkdownEditorProps {
   documentId?: string;
-  initialTitle?: string;
-  initialContent?: string;
   workspaceId?: string;
-  onContentChange?: (content: string) => void;
+  doc: Y.Doc;
+  provider: YPartyKitProvider;
+  onDocumentSaved?: (newDocumentId: string) => void;
+  isDocumentSidebarOpen?: boolean;
 }
 
-const MergedMarkdownEditor: React.FC<MarkdownEditorProps> = ({
-  documentId,
-  initialTitle = '',
-  initialContent = '',
-  workspaceId,
-  onContentChange
+const MergedMarkdownEditor: React.FC<MarkdownEditorProps> = ({ 
+  documentId, 
+  workspaceId, 
+  doc, 
+  provider, 
+  onDocumentSaved,
+  isDocumentSidebarOpen = false 
 }) => {
   const { user } = useUser();
   const router = useRouter();
-  
-  // Document state
-  const [title, setTitle] = useState(initialTitle || 'Untitled Document');
-  const [markdownContent, setMarkdownContent] = useState<string>(initialContent || `# Welcome to MarkFlow!
 
-Start writing your document here. You can use **markdown** formatting and LaTeX math expressions.
+  // --- YJS-POWERED STATE ---
+  const ytext = useMemo(() => doc.getText('codemirror'), [doc]);
+  const ytitle = useMemo(() => doc.getText('title'), [doc]);
+  const ycomments = useMemo(() => doc.getArray<Y.Map<any>>('comments'), [doc]);
 
-## Mathematical Expressions
+  // --- REACT UI STATE (DERIVED FROM YJS) ---
+  const [title, setTitle] = useState(ytitle.toString() || 'Untitled Document');
+  const [markdownContent, setMarkdownContent] = useState(ytext.toString());
+  const [comments, setComments] = useState<CommentData[]>([]);
 
-Inline math: $E = mc^2$ and $\\alpha + \\beta = \\gamma$
-
-Block math:
-$$
-\\int_{-\\infty}^{\\infty} e^{-x^2} dx = \\sqrt{\\pi}
-$$
-
-## Features
-
-- **Bold** and *italic* text
-- \`Code snippets\`
-- [Links](https://example.com)
-- Lists and tables
-- LaTeX math support
-
-Happy writing! 🚀
-`);
+  // --- UI-ONLY STATE ---
   const [htmlContent, setHtmlContent] = useState<string>('');
   const [showPreview, setShowPreview] = useState<boolean>(true);
   const [isFullScreen, setIsFullScreen] = useState<boolean>(false);
-  const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'unsaved' | 'error'>('saved');
+  const [saveStatus, setSaveStatus] = useState<
+    "saved" | "saving" | "unsaved" | "error"
+  >("saved");
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [darkMode, setDarkMode] = useState<boolean>(false);
   const [showThemePicker, setShowThemePicker] = useState<boolean>(false);
+  const [connectionStatus, setConnectionStatus] = useState<
+    "connected" | "disconnected" | "connecting"
+  >("connecting");
+  const [connectedUsers, setConnectedUsers] = useState<
+    Map<
+      string,
+      {
+        name?: string;
+        color?: string;
+        email?: string;
+        id?: string;
+        isCurrentUser?: boolean;
+      }
+    >
+  >(new Map());
+  const [autoCompile, setAutoCompile] = useState<boolean>(false);
+  const [compiledContent, setCompiledContent] = useState<string>("");
+  const [isCompiling, setIsCompiling] = useState<boolean>(false);
+  const [processedContent, setProcessedContent] = useState<string>("");
+  const [isProcessing, setIsProcessing] = useState<boolean>(false);
+
+  // --- COMMENTING SYSTEM STATE ---
+  const [isCommentSidebarOpen, setIsCommentSidebarOpen] = useState<boolean>(false);
+  const refreshDecorations = StateEffect.define<{ ydoc: Y.Doc; activeId: string | null }>();
 
   const editorRef = useRef<HTMLDivElement>(null);
   const editorViewRef = useRef<EditorView | null>(null);
+  const previewRef = useRef<HTMLDivElement>(null);
   const titleRef = useRef<HTMLInputElement>(null);
-  const saveTimeoutRef = useRef<NodeJS.Timeout>();
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const themePickerRef = useRef<HTMLDivElement>(null);
+  const commentWebSocketRef = useRef<WebSocket | null>(null);
+
+  const { commentButtonState, showCommentButton, dismissCommentButton } = useCommentSelection();
+  const [activeCommentId, setActiveCommentId] = useState<string | null>(null);
+
+  const commentDecorationField = StateField.define<DecorationSet>({
+  create() {
+    return Decoration.none;
+  },
+  update(decorations, tr) {
+    decorations = decorations.map(tr.changes);
+
+    for (const effect of tr.effects) {
+      if (effect.is(refreshDecorations)) {
+        const { ydoc, activeId } = effect.value;
+        const commentsArray = ydoc.getArray<Y.Map<any>>('comments');
+        const newDecorations: any[] = [];
+
+        commentsArray.forEach(commentMap => {
+          const comment = commentMap.toJSON();
+          try {
+            const startRelPos = JSON.parse(comment.anchorStart);
+            const endRelPos = JSON.parse(comment.anchorEnd);
+
+            const startAbsPos = Y.createAbsolutePositionFromRelativePosition(startRelPos, ydoc);
+            const endAbsPos = Y.createAbsolutePositionFromRelativePosition(endRelPos, ydoc);
+
+            if (startAbsPos && endAbsPos && startAbsPos.index < endAbsPos.index) {
+              const isActive = comment._id === activeId;
+              newDecorations.push(
+                Decoration.mark({
+                  class: isActive ? 'cm-comment-highlight-active' : 'cm-comment-highlight',
+                  attributes: { 'data-comment-id': comment._id },
+                }).range(startAbsPos.index, endAbsPos.index)
+              );
+            }
+          } catch (e) {
+            console.error("Could not resolve comment position", e);
+          }
+        });
+        return Decoration.set(newDecorations);
+      }
+    }
+    return decorations;
+  },
+  provide: f => EditorView.decorations.from(f),
+});
+
+  const handleSetActiveComment = useCallback((commentId: string | null) => {
+    setActiveCommentId(commentId);
+    if (!commentId || !editorViewRef.current) return;
+
+    const comment = ycomments.toArray().find(c => c.get('_id') === commentId);
+    if (comment) {
+        try {
+            const relPosJSON = JSON.parse(comment.get('anchorStart') as string);
+            const relativePosition = relPosJSON;
+            const absolutePosition = Y.createAbsolutePositionFromRelativePosition(relativePosition, doc);
+
+            if (absolutePosition) {
+              editorViewRef.current.dispatch({
+                  effects: EditorView.scrollIntoView(absolutePosition.index, { y: 'center' })
+              });
+            }
+        } catch (e) {
+            console.error("Failed to scroll to comment", e);
+        }
+    }
+}, [ycomments, doc]);
+
+  useEffect(() => {
+    const syncComments = () => {
+      const currentComments = ycomments.toArray().map(ymap => ymap.toJSON() as CommentData);
+      
+      const commentMap = new Map(currentComments.map(c => [c._id, { ...c, replies: [] as CommentData[] }]));
+      const threadedComments: CommentData[] = [];
+
+      currentComments.forEach(comment => {
+        if (comment.parent) {
+          const parent = commentMap.get(comment.parent);
+          if (parent) {
+            parent.replies.push(commentMap.get(comment._id)!);
+          }
+        } else {
+          threadedComments.push(commentMap.get(comment._id)!);
+        }
+      });
+      
+      setComments(threadedComments);
+
+    };
+
+    ycomments.observe(syncComments);
+    syncComments();
+
+    return () => ycomments.unobserve(syncComments);
+  }, [ycomments]);
+
+  useEffect(() => {
+    if (editorViewRef.current) {
+        editorViewRef.current.dispatch({
+            effects: [refreshDecorations.of({ ydoc: doc, activeId: activeCommentId })]
+        });
+    }
+  }, [comments, activeCommentId, doc]);
+  
+  const handleCommentAction = useCallback((action: CommentAction) => {
+    if (!user || !editorViewRef.current) return;
+
+    doc.transact(() => {
+      switch (action.type) {
+        case 'create': {
+          const { from, to } = action.payload.selection;
+          const ytext = doc.getText('codemirror');
+          const anchorStart = JSON.stringify(Y.createRelativePositionFromTypeIndex(ytext, from));
+          const anchorEnd = JSON.stringify(Y.createRelativePositionFromTypeIndex(ytext, to));
+
+          const newComment: Omit<CommentData, 'replies'> = {
+            _id: nanoid(),
+            author: { _id: user.id, name: user.firstName || user.emailAddresses[0].emailAddress, avatar: user.imageUrl },
+            content: action.payload.content,
+            createdAt: new Date().toISOString(),
+            isResolved: false,
+            selectedText: action.payload.selectedText,
+            anchorStart,
+            anchorEnd,
+          };
+          ycomments.push([new Y.Map(Object.entries(newComment))]);
+          setIsCommentSidebarOpen(true);
+          dismissCommentButton();
+          break;
+        }
+        case 'reply': {
+           const newReply: Omit<CommentData, 'replies'> = {
+            _id: nanoid(),
+            parent: action.payload.parentId,
+            author: { _id: user.id, name: user.firstName || user.emailAddresses[0].emailAddress, avatar: user.imageUrl },
+            content: action.payload.content,
+            createdAt: new Date().toISOString(),
+            isResolved: false,
+            anchorStart: '',
+            anchorEnd: '',
+          };
+          ycomments.push([new Y.Map(Object.entries(newReply))]);
+          break;
+        }
+        case 'edit': {
+          const commentIndex = ycomments.toArray().findIndex(c => c.get('_id') === action.payload.commentId);
+          if (commentIndex > -1) {
+            const ycomment = ycomments.get(commentIndex);
+            ycomment.set('content', action.payload.content);
+            ycomment.set('isEdited', true);
+            ycomment.set('editedAt', new Date().toISOString());
+          }
+          break;
+        }
+        case 'delete': {
+          const idsToDelete = new Set([action.payload.commentId]);
+          let changed = true;
+          while(changed) {
+            changed = false;
+            ycomments.toArray().forEach(c => {
+              const parentId = c.get('parent');
+              if(parentId && idsToDelete.has(parentId) && !idsToDelete.has(c.get('_id'))) {
+                idsToDelete.add(c.get('_id'));
+                changed = true;
+              }
+            });
+          }
+
+          const toDeleteIndices = ycomments.toArray().map((c, i) => idsToDelete.has(c.get('_id')) ? i : -1).filter(i => i !== -1).reverse();
+          toDeleteIndices.forEach(index => ycomments.delete(index, 1));
+          break;
+        }
+        case 'resolve': {
+          const commentIndex = ycomments.toArray().findIndex(c => c.get('_id') === action.payload.commentId);
+          if (commentIndex > -1) {
+            ycomments.get(commentIndex).set('isResolved', action.payload.isResolved);
+          }
+          break;
+        }
+      }
+    });
+  }, [doc, ycomments, user, dismissCommentButton]);
+
+  const scrollSyncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const mathJaxConfig = {
-    loader: { load: ['[tex]/ams', '[tex]/noerrors'] },
+    loader: { load: ["[tex]/ams", "[tex]/noerrors"] },
     tex: {
-      inlineMath: [['$', '$']],
-      displayMath: [['$$', '$$']],
-      packages: { '[+]': ['ams', 'noerrors'] },
+      inlineMath: [["$", "$"]],
+      displayMath: [["$$", "$$"]],
+      packages: { "[+]": ["ams", "noerrors"] },
       processEscapes: true,
-      processEnvironments: true
+      processEnvironments: true,
     },
     options: {
-      skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre'],
-      enableMenu: false
-    }
+      skipHtmlTags: ["script", "noscript", "style", "textarea", "pre"],
+      enableMenu: false,
+    },
   };
 
-  // Toggle dark mode
   const toggleDarkMode = () => {
     setDarkMode(!darkMode);
     setShowThemePicker(false);
   };
 
-  // Close theme picker when clicking outside
+  const processMarkdown = useCallback(async (markdown: string): Promise<string> => {
+    try {
+      const file = await unified()
+        .use(remarkParse)
+        .use(remarkGfm)
+        .use(remarkMath)
+        .use(remarkRehype)
+        .use(rehypeHighlight)
+        .use(rehypeSanitize, {
+          tagNames: [
+            'h1', 'h2', 'h3', 'p', 'a', 'ul', 'ol', 'li',
+            'blockquote', 'code', 'pre', 'hr', 'strong',
+            'em', 'div', 'span', 'del', 'img', 'table',
+            'thead', 'tbody', 'tr', 'th', 'td', 'input',
+            'sup', 'br'
+          ],
+          attributes: {
+            '*': ['className'],
+            'a': ['href', 'target', 'rel', 'id'],
+            'img': ['src', 'alt', 'title'],
+            'input': ['type', 'checked', 'disabled'],
+            'span': ['data*'],
+            'div': ['id']
+          }
+        })
+        .use(rehypeStringify)
+        .process(markdown);
+
+      return String(file);
+    } catch (error) {
+      console.error('Markdown processing error:', error);
+      return `<div class="markdown-error">Error rendering markdown</div>`;
+    }
+  }, []);
+
+  const processContent = useCallback(async (content: string) => {
+    setIsProcessing(true);
+    try {
+      const result = await processMarkdown(content);
+      setProcessedContent(result);
+    } catch (error) {
+      console.error("Markdown processing error:", error);
+      setProcessedContent("<div>Error rendering markdown</div>");
+    } finally {
+      setIsProcessing(false);
+    }
+  }, [processMarkdown]);
+
+  const compileMarkdown = useCallback(async () => {
+    if (isCompiling) return;
+
+    setIsCompiling(true);
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      // Process the entire document at once and store the resulting HTML
+      const compiled = await processMarkdown(markdownContent);
+      setCompiledContent(compiled);
+      console.log("Markdown compiled successfully");
+    } catch (error) {
+      console.error("Compilation error:", error);
+    } finally {
+      setIsCompiling(false);
+    }
+  }, [markdownContent, isCompiling, processMarkdown, processContent]);
+
+  const toggleAutoCompile = () => {
+    setAutoCompile(!autoCompile);
+    if (!autoCompile) {
+      compileMarkdown();
+    }
+  };
+
+  useEffect(() => {
+    if (markdownContent && !compiledContent) {
+      compileMarkdown();
+    }
+  }, [markdownContent, compiledContent, compileMarkdown]);
+
+  useEffect(() => {
+    if (autoCompile || showPreview) {
+      processContent(markdownContent);
+    }
+  }, [markdownContent, autoCompile, showPreview, processContent]);
+
+  const refreshEditor = useCallback(() => {
+    if (editorViewRef.current) {
+      editorViewRef.current.requestMeasure();
+      editorViewRef.current.dispatch({
+        effects: [],
+      });
+    }
+  }, []);
+
+  const syncScrollFromEditor = useCallback(() => {
+    if (!editorViewRef.current || !previewRef.current || !showPreview) return;
+
+    if (scrollSyncTimeoutRef.current) {
+      clearTimeout(scrollSyncTimeoutRef.current);
+    }
+
+    scrollSyncTimeoutRef.current = setTimeout(() => {
+      const editor = editorViewRef.current;
+      const preview = previewRef.current;
+      if (!editor || !preview) return;
+
+      const editorScrollElement = editor.scrollDOM;
+      const scrollTop = editorScrollElement.scrollTop;
+      const scrollHeight =
+        editorScrollElement.scrollHeight - editorScrollElement.clientHeight;
+
+      if (scrollHeight > 0) {
+        const scrollRatio = scrollTop / scrollHeight;
+        const previewScrollHeight = preview.scrollHeight - preview.clientHeight;
+        preview.scrollTop = scrollRatio * previewScrollHeight;
+      }
+
+      refreshEditor();
+    }, 50);
+  }, [showPreview, refreshEditor]);
+
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (themePickerRef.current && !themePickerRef.current.contains(event.target as Node)) {
+      if (
+        themePickerRef.current &&
+        !themePickerRef.current.contains(event.target as Node)
+      ) {
         setShowThemePicker(false);
       }
     };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Auto-save functionality
-  const saveDocument = async (isManual = false) => {
-    if (!user) return;
+  useEffect(() => {
+    const updateConnectionStatus = () => {
+      if (provider.ws?.readyState === WebSocket.OPEN) {
+        setConnectionStatus("connected");
+      } else if (provider.ws?.readyState === WebSocket.CONNECTING) {
+        setConnectionStatus("connecting");
+      } else {
+        setConnectionStatus("disconnected");
+      }
+    };
 
-    setSaveStatus('saving');
-    
+    const updateConnectedUsers = () => {
+      const users = new Map();
+      const seenUserIds = new Set();
+      const currentUserId = user?.id;
+
+      if (user && currentUserId) {
+        const currentUserInfo = {
+          name:
+            user.firstName || user.emailAddresses?.[0]?.emailAddress || "You",
+          email: user.emailAddresses?.[0]?.emailAddress,
+          color: "#60a5fa",
+          id: currentUserId,
+          isCurrentUser: true,
+        };
+        users.set(currentUserId, currentUserInfo);
+        seenUserIds.add(currentUserId);
+      }
+
+      provider.awareness.getStates().forEach((state, clientId) => {
+        if (
+          state.user &&
+          clientId !== provider.awareness.clientID &&
+          state.user.id !== currentUserId &&
+          state.user.name &&
+          !seenUserIds.has(state.user.id)
+        ) {
+          seenUserIds.add(state.user.id);
+          users.set(state.user.id, { ...state.user, isCurrentUser: false });
+        }
+      });
+
+      setConnectedUsers(users);
+    };
+
+    provider.on("status", updateConnectionStatus);
+    provider.awareness.on("change", updateConnectedUsers);
+    updateConnectionStatus();
+    updateConnectedUsers();
+
+    return () => {
+      provider.off("status", updateConnectionStatus);
+      provider.awareness.off("change", updateConnectedUsers);
+    };
+  }, [provider, user]);
+
+  const generateUserAvatar = (
+    userInfo: {
+      name?: string;
+      color?: string;
+      email?: string;
+      isCurrentUser?: boolean;
+    },
+    size: number = 8
+  ) => {
+    const initials = userInfo.name
+      ? userInfo.name
+          .split(" ")
+          .map((n: string) => n[0])
+          .join("")
+          .slice(0, 2)
+          .toUpperCase()
+      : "A";
+    return (
+      <div className="relative">
+        <div
+          className={`w-${size} h-${size} rounded-full flex items-center justify-center text-white text-xs font-medium ${
+            userInfo.isCurrentUser ? "ring-2 ring-blue-400 ring-offset-2" : ""
+          }`}
+          style={{ backgroundColor: userInfo.color }}
+          title={
+            userInfo.isCurrentUser
+              ? `${userInfo.name || "You"} (You)`
+              : userInfo.name || "Anonymous"
+          }
+        >
+          {initials}
+        </div>
+        {userInfo.isCurrentUser && (
+          <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-blue-500 rounded-full border-2 border-white flex items-center justify-center">
+            <div className="w-1 h-1 bg-white rounded-full"></div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const getConnectionStatusDisplay = () => {
+    const statusConfig = {
+      connected: {
+        color: "text-green-600",
+        bg: "bg-green-100",
+        text: "Connected",
+        dot: "bg-green-500",
+      },
+      connecting: {
+        color: "text-yellow-600",
+        bg: "bg-yellow-100",
+        text: "Connecting...",
+        dot: "bg-yellow-500",
+      },
+      disconnected: {
+        color: "text-red-600",
+        bg: "bg-red-100",
+        text: "Disconnected",
+        dot: "bg-red-500",
+      },
+    };
+
+    const config = statusConfig[connectionStatus];
+
+    return (
+      <div
+        className={`flex items-center px-2 py-1 rounded-full text-xs ${config.bg} ${config.color}`}
+      >
+        <div
+          className={`w-2 h-2 rounded-full ${config.dot} mr-2 ${connectionStatus === "connecting" ? "animate-pulse" : ""}`}
+        ></div>
+        {config.text}
+        {connectedUsers.size > 0 && (
+          <span className="ml-2 font-medium">
+            {connectedUsers.size} user{connectedUsers.size > 1 ? "s" : ""}{" "}
+            active
+          </span>
+        )}
+      </div>
+    );
+  };
+
+  const saveDocument = useCallback(async () => {
+    if (!user || saveStatus === "saving") return;
+    setSaveStatus("saving");
+
     try {
+      const currentContent = ytext.toString();
+      const currentTitle = ytitle.toString() || "Untitled Document";
+
       const payload = {
-        title: title || 'Untitled Document',
-        content: markdownContent,
+        title: currentTitle,
+        content: currentContent,
         workspaceId: workspaceId || null,
       };
 
       let response;
       if (documentId) {
         response = await fetch(`/api/notes/${documentId}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
       } else {
-        response = await fetch('/api/notes', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+        response = await fetch("/api/notes", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
       }
 
       if (response.ok) {
         const savedDoc = await response.json();
-        setSaveStatus('saved');
+        setSaveStatus("saved");
         setLastSaved(new Date());
-        
+
         if (!documentId && savedDoc._id) {
-          router.replace(`/editor/${savedDoc._id}`);
+          onDocumentSaved?.(savedDoc._id);
         }
       } else {
-        setSaveStatus('error');
+        setSaveStatus("error");
       }
     } catch (error) {
-      console.error('Save error:', error);
-      setSaveStatus('error');
+      console.error("Save error:", error);
+      setSaveStatus("error");
     }
-  };
+  }, [user, saveStatus, ytext, ytitle, workspaceId, documentId, onDocumentSaved]);
 
-  // Auto-save effect
   useEffect(() => {
-    if (saveTimeoutRef.current) {
-      clearTimeout(saveTimeoutRef.current);
-    }
+    const handleDocUpdate = () => {
+      try {
+        setMarkdownContent(ytext.toString());
+        setTitle(ytitle.toString());
+        setSaveStatus("unsaved");
+        refreshEditor();
 
-    if (markdownContent !== initialContent || title !== initialTitle) {
-      setSaveStatus('unsaved');
-      
-      saveTimeoutRef.current = setTimeout(() => {
-        saveDocument(false);
-      }, 3000);
-    }
+        if (autoCompile) {
+          compileMarkdown();
+        }
 
-    return () => {
-      if (saveTimeoutRef.current) {
-        clearTimeout(saveTimeoutRef.current);
+        if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = setTimeout(() => saveDocument(), 3000);
+      } catch (error) {
+        console.warn("Document update error:", error);
       }
     };
-  }, [markdownContent, title, initialContent, initialTitle]);
 
-  const processMarkdown = (markdown: string): string => {
-    let processed = markdown
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
+    doc.on("update", handleDocUpdate);
+    return () => {
+      doc.off("update", handleDocUpdate);
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    };
+  }, [
+    doc,
+    ytext,
+    ytitle,
+    saveDocument,
+    refreshEditor,
+    autoCompile,
+    compileMarkdown,
+  ]);
 
-    processed = processed.replace(/\$\$(([\s\S])*?)\$\$/g, (_, content) => {
-      const trimmed = content.trim();
-      return `<div class="math-block">$$${trimmed}$$</div>`;
-    });
+const md = new MarkdownIt({
+  html: true,
+  linkify: true,
+  typographer: true,
+})
+.use(mathjax)
+.use(footnote)
+.use(sub)
+.use(sup)
+.use(abbr);
 
-    processed = processed.replace(/\$([^\$\n]+?)\$/g, (_, content) => {
-      const trimmed = content.trim();
-      return `<span class="math-inline">$${trimmed}$</span>`;
-    });
-
-    processed = processed.replace(/```(\w+)?\n([\s\S]*?)```/g, (_, lang, code) => {
-      const language = lang || 'text';
-      return `<pre><code class="language-${language}">${code.trim()}</code></pre>`;
-    });
-
-    processed = processed.replace(/`([^`]+)`/g, '<code>$1</code>');
-    processed = processed.replace(/^### (.*$)/gm, '<h3>$1</h3>');
-    processed = processed.replace(/^## (.*$)/gm, '<h2>$1</h2>');
-    processed = processed.replace(/^# (.*$)/gm, '<h1>$1</h1>');
-    processed = processed.replace(/\*\*\*(.*?)\*\*\*/g, '<strong><em>$1</em></strong>');
-    processed = processed.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-    processed = processed.replace(/\*(.*?)\*/g, '<em>$1</em>');
-    processed = processed.replace(/~~(.*?)~~/g, '<del>$1</del>');
-    processed = processed.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
-    processed = processed.replace(/^\d+\.\s(.+)/gm, '<li>$1</li>');
-    processed = processed.replace(/(<li>.*<\/li>\s*)+/g, '<ol>$&</ol>');
-    processed = processed.replace(/^[-*+]\s(.+)/gm, '<li>$1</li>');
-    processed = processed.replace(/(<li>.*<\/li>\s*)+/g, (match) => {
-      if (match.includes('<ol>')) return match;
-      return `<ul>${match}</ul>`;
-    });
-    processed = processed.replace(/^>\s(.+)/gm, '<blockquote>$1</blockquote>');
-    processed = processed.replace(/^---$/gm, '<hr>');
-    processed = processed.replace(/\n\n/g, '</p><p>');
-    processed = `<p>${processed}</p>`;
-
-    processed = processed.replace(/<p><\/p>/g, '');
-    processed = processed.replace(/<p>(<h[1-6]>)/g, '$1');
-    processed = processed.replace(/(<\/h[1-6]>)<\/p>/g, '$1');
-    processed = processed.replace(/<p>(<[ou]l>)/g, '$1');
-    processed = processed.replace(/(<\/[ou]l>)<\/p>/g, '$1');
-
-    return sanitizeHtml(processed, {
-      allowedTags: ['h1', 'h2', 'h3', 'p', 'a', 'ul', 'ol', 'li', 'blockquote', 'code', 'pre', 'hr', 'strong', 'em', 'div', 'span', 'del'],
-      allowedAttributes: {
-        a: ['href', 'target', 'rel'],
-        div: ['class'],
-        span: ['class'],
-        code: ['class'],
-        pre: ['class']
-      }
-    });
-  };
-
-  const renderLatex = (html: string) => {
-    let rendered = html;
-    rendered = rendered.replace(/<div class="math-block">\$\$([\s\S]*?)\$\$<\/div>/g, 
-      `<div class="math-display ${darkMode ? 'bg-gray-800 border-blue-700' : 'bg-blue-50 border-blue-500'} p-4 my-4 rounded border-l-4 font-mono text-center text-lg">$$$$1$$</div>`);
-    rendered = rendered.replace(/<span class="math-inline">\$(.*?)\$<\/span>/g, 
-      `<span class="math-inline ${darkMode ? 'bg-gray-800 text-blue-300' : 'bg-blue-50 text-blue-800'} px-1 rounded font-mono">$1</span>`);
-    return rendered;
-  };
+// (Removed duplicate processMarkdown function)
 
   useEffect(() => {
-    if (editorRef.current && !editorViewRef.current) {
+    if (editorRef.current && !editorViewRef.current && user) {
+      try {
+        const userColors = [
+          "#e74c3c", "#3498db", "#2ecc71", "#f39c12", "#9b59b6", "#1abc9c",
+          "#e67e22", "#34495e", "#f1c40f", "#e91e63", "#ff5722", "#795548",
+          "#607d8b", "#ff9800", "#4caf50",
+        ];
+        const colorIndex = user.id
+          ? user.id
+              .split("")
+              .reduce((acc, char) => acc + char.charCodeAt(0), 0) %
+            userColors.length
+          : 0;
+        const userColor = userColors[colorIndex];
+
+        const userAwarenessInfo = {
+          name:
+            user?.firstName ||
+            user?.emailAddresses?.[0]?.emailAddress?.split("@")[0] ||
+            "Anonymous",
+          email: user?.emailAddresses?.[0]?.emailAddress,
+          color: userColor,
+          colorLight: userColor + "40",
+          id: user?.id,
+
+          avatar: user?.imageUrl || null,
+        };
+
+      const updateListener = EditorView.updateListener.of((update) => {
+        if (update.selectionSet) {
+          const selection = update.state.selection.main;
+          if (selection.empty) {
+            dismissCommentButton();
+          } else {
+            const text = update.state.sliceDoc(selection.from, selection.to).trim();
+            if (text.length > 2) {
+              const domRect = editorViewRef.current?.coordsAtPos(selection.to);
+              const editorRect = editorRef.current?.getBoundingClientRect();
+              if (domRect && editorRect) {
+                showCommentButton(
+                  text,
+                  {
+                    x: domRect.right + 5,
+                    y: domRect.top + (domRect.bottom - domRect.top) / 2
+                  },
+                  { from: selection.from, to: selection.to }
+                );
+              }
+            } else {
+              dismissCommentButton();
+            }
+          }
+        }
+      });
+
       const startState = EditorState.create({
-        doc: markdownContent,
+        doc: ytext.toString(),
         extensions: [
-          keymap.of([...defaultKeymap, ...historyKeymap]),
+          keymap.of([...defaultKeymap, ...historyKeymap, ...yUndoManagerKeymap]),
           history(),
           markdown(),
+          EditorView.lineWrapping,
+          lineNumbers(),
           darkMode ? oneDark : [],
-          EditorView.updateListener.of(update => {
-            if (update.docChanged) {
-              const newContent = update.state.doc.toString();
-              setMarkdownContent(newContent);
-              if (onContentChange) {
-                onContentChange(newContent);
-              }
+          yCollab(ytext, provider.awareness, { undoManager: new Y.UndoManager(ytext) }),
+          updateListener,
+          commentDecorationField,
+          EditorView.domEventHandlers({
+            mousedown: (event, view) => {
+                const target = event.target as HTMLElement;
+                const highlight = target.closest('.cm-comment-highlight');
+    
+                if (highlight) {
+                    const commentId = highlight.getAttribute('data-comment-id');
+                    if (commentId) {
+                        event.preventDefault();
+                        setIsCommentSidebarOpen(true);
+                        handleSetActiveComment(commentId);
+                        return true;
+                    }
+                }
+                return false;
             }
-          }),
+        }),
           EditorView.theme({
             "&": {
               backgroundColor: darkMode ? "#1a202c" : "white",
               color: darkMode ? "#e2e8f0" : "#1a202c",
+              fontSize: "14px",
             },
             ".cm-content": {
-              caretColor: darkMode ? "#e2e8f0" : "#1a202c",
+              caretColor: darkMode ? "#60a5fa" : "#2563eb",
+              padding: "10px",
+              minHeight: "200px",
+              whiteSpace: "pre-wrap",
+              wordWrap: "break-word",
+              overflowWrap: "break-word",
+            },
+            ".cm-line": {
+              whiteSpace: "pre-wrap",
+              wordWrap: "break-word",
+              overflowWrap: "break-word",
+            },
+            ".cm-focused": {
+              outline: "none",
+            },
+            ".cm-cursor, .cm-dropCursor": {
+              borderLeft: `2px solid ${darkMode ? "#60a5fa" : "#2563eb"} !important`,
+              marginLeft: "-1px !important",
+              height: "1.2em !important",
+              animation: "cm-blink 1.2s infinite !important",
+            },
+            ".cm-focused .cm-cursor": {
+              borderLeft: `2px solid ${darkMode ? "#60a5fa" : "#2563eb"} !important`,
+              display: "block !important",
             },
             ".cm-gutters": {
               backgroundColor: darkMode ? "#2d3748" : "#f7fafc",
               color: darkMode ? "#a0aec0" : "#718096",
               borderRight: darkMode ? "1px solid #4a5568" : "1px solid #e2e8f0",
-            }
+            },
+            ".cm-ySelectionInfo": {
+              position: "absolute !important", top: "-2.2em !important", left: "-2px !important",
+              fontSize: "11px !important", fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important",
+              fontStyle: "normal !important", fontWeight: "500 !important", lineHeight: "1.3 !important",
+              padding: "4px 8px !important", color: "white !important", whiteSpace: "nowrap !important",
+              borderRadius: "6px !important", zIndex: "1000 !important",
+              boxShadow: "0 2px 8px rgba(0,0,0,0.25) !important", border: "1px solid rgba(255,255,255,0.2) !important",
+              backdropFilter: "blur(4px) !important", pointerEvents: "none !important",
+              opacity: "1 !important", transform: "translateX(-50%) !important",
+              display: "block !important", visibility: "visible !important",
+            },
+            ".cm-yCursor": {
+              position: "relative !important", borderLeft: "2px solid !important",
+              marginLeft: "-1px !important", marginRight: "-1px !important",
+              boxSizing: "border-box !important", zIndex: "100 !important",
+              height: "1.2em !important", pointerEvents: "none !important",
+              animation: "y-cursor-blink 1.2s ease-in-out infinite !important",
+              display: "block !important", visibility: "visible !important",
+            },
+            ".cm-ySelection": {
+              borderRadius: "2px !important", opacity: "0.3 !important",
+              pointerEvents: "none !important", display: "block !important",
+              visibility: "visible !important",
+            },
+            "@keyframes y-cursor-blink": { "0%, 50%": { opacity: "1" }, "51%, 100%": { opacity: "0.3" }, },
+            "@keyframes cm-blink": { "0%": { opacity: "1" }, "50%": { opacity: "0" }, "100%": { opacity: "1" }, },
           })
         ]
       });
 
-      editorViewRef.current = new EditorView({
-        state: startState,
-        parent: editorRef.current
-      });
+        provider.awareness.setLocalState(null);
+        provider.awareness.setLocalStateField("user", userAwarenessInfo);
+        provider.awareness.setLocalState({ user: userAwarenessInfo });
 
-      return () => {
-        editorViewRef.current?.destroy();
-        editorViewRef.current = null;
-      };
+        editorViewRef.current = new EditorView({
+          state: startState,
+          parent: editorRef.current,
+        });
+
+        const yTextObserver = () => {
+          if (editorViewRef.current) {
+            requestAnimationFrame(() => {
+              editorViewRef.current?.requestMeasure();
+              editorViewRef.current?.dispatch({ effects: [] });
+            });
+          }
+        };
+        ytext.observe(yTextObserver);
+
+        return () => {
+          ytext.unobserve(yTextObserver);
+          provider.awareness.setLocalState(null);
+          editorViewRef.current?.destroy();
+          editorViewRef.current = null;
+        };
+      } catch (error) {
+        console.error("CodeMirror initialization error:", error);
+        if (editorRef.current) {
+          const fallbackTextarea = document.createElement("textarea");
+          fallbackTextarea.value = ytext.toString();
+          fallbackTextarea.style.width = "100%";
+          fallbackTextarea.style.height = "100%";
+          fallbackTextarea.style.border = "none";
+          fallbackTextarea.style.outline = "none";
+          fallbackTextarea.style.resize = "none";
+          fallbackTextarea.style.fontFamily = "monospace";
+          fallbackTextarea.style.fontSize = "14px";
+          fallbackTextarea.style.padding = "1rem";
+          fallbackTextarea.addEventListener("input", (e) => {
+            const target = e.target as HTMLTextAreaElement;
+            doc.transact(() => {
+              ytext.delete(0, ytext.length);
+              ytext.insert(0, target.value);
+            });
+          });
+          editorRef.current.appendChild(fallbackTextarea);
+        }
+      }
     }
-  }, [darkMode]);
+  }, [darkMode, ytext, provider, user, doc]);
 
   useEffect(() => {
-    const html = processMarkdown(markdownContent);
-    const rendered = renderLatex(html);
-    setHtmlContent(rendered);
-  }, [markdownContent, darkMode]);
+    if (editorViewRef.current && showPreview) {
+      const scrollElement = editorViewRef.current.scrollDOM;
+      scrollElement.addEventListener("scroll", syncScrollFromEditor);
+      return () => {
+        scrollElement.removeEventListener("scroll", syncScrollFromEditor);
+        if (scrollSyncTimeoutRef.current) {
+          clearTimeout(scrollSyncTimeoutRef.current);
+        }
+      };
+    }
+  }, [showPreview, syncScrollFromEditor]);
 
   const insertTextAtCursor = (text: string, cursorOffset: number = 0) => {
     if (!editorViewRef.current) return;
-
     const state = editorViewRef.current.state;
     const selection = state.selection;
     const from = selection.main.from;
     const to = selection.main.to;
-
     editorViewRef.current.dispatch({
       changes: { from, to, insert: text },
-      selection: { anchor: from + cursorOffset }
+      selection: { anchor: from + cursorOffset },
     });
   };
 
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(markdownContent);
-      alert('Markdown copied to clipboard!');
+      alert("Markdown copied to clipboard!");
     } catch (err) {
-      console.error('Failed to copy:', err);
-      alert('Failed to copy markdown to clipboard.');
+      console.error("Failed to copy:", err);
+      alert("Failed to copy markdown to clipboard.");
     }
   };
 
   const handleDownload = () => {
     try {
-      const element = document.createElement('a');
-      const file = new Blob([markdownContent], { type: 'text/markdown' });
+      const element = document.createElement("a");
+      const file = new Blob([markdownContent], { type: "text/markdown" });
       element.href = URL.createObjectURL(file);
-      element.download = `${title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.md`;
+      element.download = `${title.replace(/[^a-z0-9]/gi, "_").toLowerCase()}.md`;
       document.body.appendChild(element);
       element.click();
       document.body.removeChild(element);
       URL.revokeObjectURL(element.href);
     } catch (err) {
-      console.error('Failed to download:', err);
-      alert('Failed to download markdown file.');
+      console.error("Failed to download:", err);
+      alert("Failed to download markdown file.");
     }
   };
 
@@ -341,12 +952,16 @@ Happy writing! 🚀
 
   const getSaveStatusIcon = () => {
     switch (saveStatus) {
-      case 'saving':
-        return <Loader2 className="w-4 h-4 animate-spin text-blue-600 dark:text-blue-400" />;
-      case 'saved':
+      case "saving":
+        return (
+          <Loader2 className="w-4 h-4 animate-spin text-blue-600 dark:text-blue-400" />
+        );
+      case "saved":
         return <Check className="w-4 h-4 text-green-600 dark:text-green-400" />;
-      case 'error':
-        return <AlertCircle className="w-4 h-4 text-red-600 dark:text-red-400" />;
+      case "error":
+        return (
+          <AlertCircle className="w-4 h-4 text-red-600 dark:text-red-400" />
+        );
       default:
         return <Save className="w-4 h-4 text-gray-600 dark:text-gray-400" />;
     }
@@ -354,27 +969,19 @@ Happy writing! 🚀
 
   const getSaveStatusText = () => {
     switch (saveStatus) {
-      case 'saving':
-        return 'Saving...';
-      case 'saved':
-        return lastSaved ? `Saved ${lastSaved.toLocaleTimeString()}` : 'Saved';
-      case 'error':
-        return 'Save failed';
+      case "saving":
+        return "Saving...";
+      case "saved":
+        return lastSaved ? `Saved ${lastSaved.toLocaleTimeString()}` : "Saved";
+      case "error":
+        return "Save failed";
       default:
-        return 'Unsaved changes';
+        return "Unsaved changes";
     }
   };
 
-  const EditorToolbarButton: React.FC<{ 
-    onClick: () => void; 
-    icon: LucideIcon; 
-    label: string;
-    disabled?: boolean;
-  }> = ({ onClick, icon: Icon, label, disabled = false }) => (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      className={`p-2 rounded transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed ${
+  const EditorToolbarButton: React.FC<{ onClick: () => void; icon: LucideIcon; label: string; disabled?: boolean; }> = ({ onClick, icon: Icon, label, disabled = false }) => (
+    <button onClick={onClick} disabled={disabled} className={`p-2 rounded transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed ${
         darkMode 
           ? 'text-gray-300 hover:bg-gray-700' 
           : 'text-gray-700 hover:bg-gray-200'
@@ -388,95 +995,119 @@ Happy writing! 🚀
     </button>
   );
 
-  const exportMarkdown = () => {
-    const blob = new Blob([markdownContent], { type: 'text/markdown' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.md`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const copyToClipboard = () => {
-    navigator.clipboard.writeText(markdownContent);
-  };
-
   return (
     <MathJaxContext config={mathJaxConfig}>
-      <div className={`markflow-editor flex flex-col h-screen ${
-        darkMode 
-          ? 'bg-gray-900 text-gray-100' 
-          : 'bg-white text-gray-800'
-      } ${isFullScreen ? 'fixed inset-0 z-50' : 'relative'}`}>
-        {/* Header with Document Title */}
-        <div className={`${
-          darkMode 
-            ? 'bg-gray-800 border-gray-700' 
-            : 'bg-white border-gray-200'
-        } border-b px-4 py-3`}>
+      <div
+        className={`markflow-editor flex flex-col h-screen max-w-full overflow-hidden ${
+          darkMode ? "bg-gray-900 text-gray-100" : "bg-white text-gray-800"
+        } ${isFullScreen ? "fixed inset-0 z-50" : "relative"}`}
+      >
+        <div
+          className={`${
+            darkMode
+              ? "bg-gray-800 border-gray-700"
+              : "bg-white border-gray-200"
+          } border-b px-4 py-3`}
+        >
+          {/* Header content remains the same */}
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center space-x-3">
+              {getConnectionStatusDisplay()}
+              {connectedUsers.size > 0 && (
+                <div className="flex items-center space-x-2">
+                  <span className="text-xs text-gray-500">Active Users:</span>
+                  <div className="flex -space-x-1">
+                    {Array.from(connectedUsers.entries())
+                      .slice(0, 5)
+                      .map(([userId, user]) => (
+                        <div key={userId} className="relative">
+                          {generateUserAvatar(user, 6)}
+                        </div>
+                      ))}
+                    {connectedUsers.size > 5 && (
+                      <div className="w-6 h-6 rounded-full bg-gray-400 flex items-center justify-center text-white text-xs font-medium">
+                        +{connectedUsers.size - 5}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="text-xs text-gray-500">
+              Real-time collaborative editing
+            </div>
+          </div>
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4 flex-1">
               <button
-                onClick={() => router.push('/dashboard')}
+                onClick={() => router.push("/dashboard")}
                 className={`p-2 rounded transition-colors ${
-                  darkMode 
-                    ? 'text-gray-300 hover:text-white hover:bg-gray-700' 
-                    : 'text-gray-600 hover:text-gray-800 hover:bg-gray-100'
+                  darkMode
+                    ? "text-gray-300 hover:text-white hover:bg-gray-700"
+                    : "text-gray-600 hover:text-gray-800 hover:bg-gray-100"
                 }`}
                 title="Back to Dashboard"
               >
                 <ArrowLeft className="w-5 h-5" />
               </button>
-              
               <input
                 ref={titleRef}
                 type="text"
                 value={title}
-                onChange={(e) => setTitle(e.target.value)}
+                onChange={(e) => {
+                  const newTitle = e.target.value;
+                  setTitle(newTitle);
+                  doc.transact(() => {
+                    if (ytitle.toString() !== newTitle) {
+                      ytitle.delete(0, ytitle.length);
+                      ytitle.insert(0, newTitle);
+                    }
+                  });
+                }}
                 className={`text-xl font-semibold border-none outline-none rounded px-2 py-1 flex-1 max-w-md ${
-                  darkMode 
-                    ? 'bg-gray-800 text-white focus:bg-gray-700' 
-                    : 'bg-transparent text-gray-800 focus:bg-gray-50'
+                  darkMode
+                    ? "bg-gray-800 text-white focus:bg-gray-700"
+                    : "bg-transparent text-gray-800 focus:bg-gray-50"
                 }`}
                 placeholder="Document title..."
               />
-              
-              <div className={`flex items-center space-x-2 text-sm ${
-                darkMode ? 'text-gray-400' : 'text-gray-500'
-              }`}>
+              <div
+                className={`flex items-center space-x-2 text-sm ${
+                  darkMode ? "text-gray-400" : "text-gray-500"
+                }`}
+              >
                 {getSaveStatusIcon()}
                 <span>{getSaveStatusText()}</span>
               </div>
             </div>
-            
             <div className="flex items-center space-x-2">
               <div className="relative" ref={themePickerRef}>
                 <button
                   onClick={() => setShowThemePicker(!showThemePicker)}
                   className={`flex items-center px-3 py-2 text-sm rounded-lg transition-colors ${
-                    darkMode 
-                      ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' 
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    darkMode
+                      ? "bg-gray-700 text-gray-300 hover:bg-gray-600"
+                      : "bg-gray-100 text-gray-700 hover:bg-gray-200"
                   }`}
                 >
                   <Palette className="w-4 h-4 mr-2" />
                   Theme
                 </button>
-                
                 {showThemePicker && (
-                  <div className={`absolute right-0 mt-2 w-48 rounded-md shadow-lg z-10 ${
-                    darkMode 
-                      ? 'bg-gray-800 border border-gray-700' 
-                      : 'bg-white border border-gray-200'
-                  }`}>
+                  <div
+                    className={`absolute right-0 mt-2 w-48 rounded-md shadow-lg z-10 ${
+                      darkMode
+                        ? "bg-gray-800 border border-gray-700"
+                        : "bg-white border border-gray-200"
+                    }`}
+                  >
                     <div className="p-2">
                       <button
                         onClick={toggleDarkMode}
                         className={`flex items-center w-full px-3 py-2 text-sm rounded ${
-                          darkMode 
-                            ? 'hover:bg-gray-700 text-gray-300' 
-                            : 'hover:bg-gray-100 text-gray-700'
+                          darkMode
+                            ? "hover:bg-gray-700 text-gray-300"
+                            : "hover:bg-gray-100 text-gray-700"
                         }`}
                       >
                         {darkMode ? (
@@ -497,251 +1128,1105 @@ Happy writing! 🚀
               </div>
               
               <button
-                onClick={() => saveDocument(true)}
+                onClick={() => setIsCommentSidebarOpen(!isCommentSidebarOpen)}
                 className={`flex items-center px-3 py-2 text-sm rounded-lg transition-colors ${
-                  darkMode 
-                    ? 'bg-blue-900 text-blue-200 hover:bg-blue-800' 
-                    : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                  isCommentSidebarOpen
+                    ? darkMode 
+                      ? 'bg-blue-900 text-blue-200' 
+                      : 'bg-blue-100 text-blue-700'
+                    : darkMode 
+                      ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' 
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                 }`}
-                disabled={saveStatus === 'saving'}
+                title="Toggle Comments"
+              >
+                <MessageSquare className="w-4 h-4 mr-2" />
+                Comments
+                {comments.length > 0 && (
+                  <span className={`ml-2 px-2 py-0.5 text-xs rounded-full ${
+                    darkMode ? 'bg-gray-600 text-gray-300' : 'bg-gray-200 text-gray-600'
+                  }`}>
+                    {comments.length}
+                  </span>
+                )}
+              </button>
+              
+              <button
+                onClick={() => saveDocument()}
+                className={`flex items-center px-3 py-2 text-sm rounded-lg transition-colors ${
+                  darkMode
+                    ? "bg-blue-900 text-blue-200 hover:bg-blue-800"
+                    : "bg-blue-100 text-blue-700 hover:bg-blue-200"
+                }`}
+                disabled={saveStatus === "saving"}
               >
                 <Save className="w-4 h-4 mr-2" />
                 Save
               </button>
-              
               <button
                 onClick={() => setShowPreview(!showPreview)}
                 className={`flex items-center px-3 py-2 text-sm rounded-lg transition-colors ${
-                  darkMode 
-                    ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' 
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  darkMode
+                    ? "bg-gray-700 text-gray-300 hover:bg-gray-600"
+                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
                 }`}
               >
-                {showPreview ? <Edit3 className="w-4 h-4 mr-2" /> : <Eye className="w-4 h-4 mr-2" />}
-                {showPreview ? 'Edit Only' : 'Preview'}
+                {showPreview ? (
+                  <Edit3 className="w-4 h-4 mr-2" />
+                ) : (
+                  <Eye className="w-4 h-4 mr-2" />
+                )}
+                {showPreview ? "Edit Only" : "Preview"}
               </button>
-              
+              {showPreview && (
+                <button
+                  onClick={compileMarkdown}
+                  disabled={isCompiling}
+                  className={`flex items-center px-3 py-2 text-sm rounded-lg transition-colors ${
+                    isCompiling ? "opacity-50 cursor-not-allowed" : ""
+                  } ${
+                    darkMode
+                      ? "bg-purple-900 text-purple-200 hover:bg-purple-800"
+                      : "bg-purple-100 text-purple-700 hover:bg-purple-200"
+                  }`}
+                  title="Compile markdown to preview"
+                >
+                  {isCompiling ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Play className="w-4 h-4 mr-2" />
+                  )}
+                  {isCompiling ? "Compiling..." : "Compile"}
+                </button>
+              )}
+              <button
+                onClick={toggleAutoCompile}
+                className={`flex items-center px-3 py-2 text-sm rounded-lg transition-colors ${
+                  autoCompile
+                    ? darkMode
+                      ? "bg-green-900 text-green-200"
+                      : "bg-green-100 text-green-700"
+                    : darkMode
+                      ? "bg-gray-700 text-gray-300 hover:bg-gray-600"
+                      : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                }`}
+                title={
+                  autoCompile ? "Disable auto-compile" : "Enable auto-compile"
+                }
+              >
+                <div
+                  className={`w-2 h-2 rounded-full mr-2 ${
+                    autoCompile ? "bg-green-500" : "bg-gray-400"
+                  }`}
+                ></div>
+                Auto
+              </button>
               <button
                 onClick={handleCopy}
                 className={`flex items-center px-3 py-2 text-sm rounded-lg transition-colors ${
-                  darkMode 
-                    ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' 
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  darkMode
+                    ? "bg-gray-700 text-gray-300 hover:bg-gray-600"
+                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
                 }`}
               >
                 <Copy className="w-4 h-4 mr-2" />
                 Copy
               </button>
-              
               <button
                 onClick={handleDownload}
                 className={`flex items-center px-3 py-2 text-sm rounded-lg transition-colors ${
-                  darkMode 
-                    ? 'bg-green-900 text-green-200 hover:bg-green-800' 
-                    : 'bg-green-100 text-green-700 hover:bg-green-200'
+                  darkMode
+                    ? "bg-green-900 text-green-200 hover:bg-green-800"
+                    : "bg-green-100 text-green-700 hover:bg-green-200"
                 }`}
               >
                 <Download className="w-4 h-4 mr-2" />
                 Export
               </button>
-              
               <button
                 onClick={toggleFullScreen}
                 className={`flex items-center px-3 py-2 text-sm rounded-lg transition-colors ${
-                  darkMode 
-                    ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' 
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  darkMode
+                    ? "bg-gray-700 text-gray-300 hover:bg-gray-600"
+                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
                 }`}
               >
-                {isFullScreen ? <Minimize className="w-4 h-4 mr-2" /> : <Maximize className="w-4 h-4 mr-2" />}
-                {isFullScreen ? 'Exit Fullscreen' : 'Fullscreen'}
+                {isFullScreen ? (
+                  <Minimize className="w-4 h-4 mr-2" />
+                ) : (
+                  <Maximize className="w-4 h-4 mr-2" />
+                )}
+                {isFullScreen ? "Exit Fullscreen" : "Fullscreen"}
               </button>
             </div>
           </div>
         </div>
-
-        {/* Toolbar */}
-        <div className={`${
-          darkMode 
-            ? 'bg-gray-800 border-gray-700' 
-            : 'bg-white border-gray-200'
-        } border-b px-4 py-2`}>
+        <div
+          className={`${
+            darkMode
+              ? "bg-gray-800 border-gray-700"
+              : "bg-white border-gray-200"
+          } border-b px-4 py-2`}
+        >
+          {/* Toolbar content remains the same */}
           <div className="flex items-center space-x-1">
-            <EditorToolbarButton onClick={() => insertTextAtCursor('**', 2)} icon={Bold} label="Bold" />
-            <EditorToolbarButton onClick={() => insertTextAtCursor('*', 1)} icon={Italic} label="Italic" />
-            <EditorToolbarButton onClick={() => insertTextAtCursor('`', 1)} icon={Code} label="Code" />
-            <EditorToolbarButton onClick={() => insertTextAtCursor('[text](url)', 1)} icon={Link} label="Link" />
-            <EditorToolbarButton onClick={() => insertTextAtCursor('- ', 2)} icon={List} label="Unordered List" />
-            <EditorToolbarButton onClick={() => insertTextAtCursor('1. ', 3)} icon={ListOrdered} label="Ordered List" />
-            <EditorToolbarButton onClick={() => insertTextAtCursor('> ', 2)} icon={Quote} label="Blockquote" />
-            <EditorToolbarButton onClick={() => insertTextAtCursor('---\n', 4)} icon={Minus} label="Horizontal Rule" />
-            <EditorToolbarButton onClick={() => insertTextAtCursor('$$\n\n$$', 3)} icon={MathIcon} label="Math Block" />
+            <EditorToolbarButton
+              onClick={() => insertTextAtCursor("**", 2)}
+              icon={Bold}
+              label="Bold"
+            />
+            <EditorToolbarButton
+              onClick={() => insertTextAtCursor("*", 1)}
+              icon={Italic}
+              label="Italic"
+            />
+            <EditorToolbarButton
+              onClick={() => insertTextAtCursor("`", 1)}
+              icon={Code}
+              label="Code"
+            />
+            <EditorToolbarButton
+              onClick={() => insertTextAtCursor("[text](url)", 1)}
+              icon={Link}
+              label="Link"
+            />
+            <EditorToolbarButton
+              onClick={() => insertTextAtCursor("- ", 2)}
+              icon={List}
+              label="Unordered List"
+            />
+            <EditorToolbarButton
+              onClick={() => insertTextAtCursor("1. ", 3)}
+              icon={ListOrdered}
+              label="Ordered List"
+            />
+            <EditorToolbarButton
+              onClick={() => insertTextAtCursor("> ", 2)}
+              icon={Quote}
+              label="Blockquote"
+            />
+            <EditorToolbarButton
+              onClick={() => insertTextAtCursor("---\n", 4)}
+              icon={Minus}
+              label="Horizontal Rule"
+            />
+            <EditorToolbarButton
+              onClick={() => insertTextAtCursor("$$\n\n$$", 3)}
+              icon={MathIcon}
+              label="Math Block"
+            />
+            <EditorToolbarButton
+              onClick={() => insertTextAtCursor("| Header 1 | Header 2 |\n|----------|----------|\n| Cell 1   | Cell 2   |", 2)}
+              icon={Table}
+              label="Table"
+            />
+            <EditorToolbarButton
+              onClick={() => insertTextAtCursor("[^1]", 3)}
+              icon={Hash}
+              label="Footnote"
+            />
+            <EditorToolbarButton
+              onClick={() => insertTextAtCursor("~~", 2)}
+              icon={Strikethrough}
+              label="Strikethrough"
+            />
+            <EditorToolbarButton
+              onClick={() => insertTextAtCursor("~", 1)}
+              icon={Subscript}
+              label="Subscript"
+            />
+            <EditorToolbarButton
+              onClick={() => insertTextAtCursor("^", 1)}
+              icon={Superscript}
+              label="Superscript"
+            />
           </div>
         </div>
 
-        {/* Editor and Preview Panes */}
-        <div className="flex flex-1 overflow-hidden">
+        {/* --- MAIN CONTENT WITH SIDEBAR LAYOUT --- */}
+        <div className={`flex flex-1 overflow-hidden transition-all duration-300 ${
+          isDocumentSidebarOpen ? 'pl-0' : ''
+        } ${
+          isCommentSidebarOpen ? 'pr-0' : ''
+        }`}>
           {/* Editor Pane */}
-          <div className={`markflow-editor-pane flex-1 ${showPreview ? 'w-1/2' : 'w-full'} overflow-hidden`}>
-            <div 
-              ref={editorRef} 
-              className={`h-full w-full p-4 font-mono text-sm leading-relaxed overflow-auto markflow-codemirror ${
-                darkMode ? 'bg-gray-900 text-gray-100' : 'bg-white text-gray-800'
-              }`} 
+          <div
+            className={`transition-all duration-300 ${
+              showPreview ? "w-1/2" : "w-full"
+            }`}
+          >
+            <div
+              ref={editorRef}
+              className={`h-full w-full font-mono text-sm leading-relaxed overflow-auto markflow-codemirror ${
+                darkMode
+                  ? "bg-gray-900 text-gray-100"
+                  : "bg-white text-gray-800"
+              }`}
+              style={{
+                WebkitUserSelect: "text",
+                userSelect: "text",
+                cursor: "text",
+                wordWrap: "break-word",
+                overflowWrap: "break-word",
+                whiteSpace: "pre-wrap",
+              }}
             />
           </div>
 
           {/* Preview Pane */}
           {showPreview && (
-            <div className={`markflow-preview flex-1 w-1/2 overflow-auto p-4 border-l ${
-              darkMode ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200'
-            }`}>
-              <MathJaxContext config={mathJaxConfig}>
-                <MathJax>
-                  <div 
-                    className={`prose prose-sm max-w-none ${
-                      darkMode ? 'prose-invert' : ''
-                    }`}
-                    dangerouslySetInnerHTML={{ __html: htmlContent }} 
-                  />
-                </MathJax>
-              </MathJaxContext>
+            <div
+              className={`markflow-preview w-1/2 h-full flex flex-col border-l transition-all duration-300 ${
+                darkMode
+                  ? "bg-gray-800 border-gray-700"
+                  : "bg-gray-50 border-gray-200"
+              }`}
+            >
+              <div
+                className={`flex-shrink-0 px-4 py-2 border-b ${
+                  darkMode
+                    ? "bg-gray-700 border-gray-600 text-gray-200"
+                    : "bg-gray-100 border-gray-200 text-gray-700"
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium">Preview</span>
+                  <div className="flex items-center space-x-2">
+                    <div
+                      className={`w-2 h-2 rounded-full ${
+                        isProcessing
+                          ? "bg-yellow-500"
+                          : processedContent
+                          ? "bg-green-500"
+                          : "bg-gray-400"
+                      }`}
+                    ></div>
+                    <span className="text-xs">
+                      {isProcessing
+                        ? "Processing..."
+                        : processedContent
+                        ? "Up to date"
+                        : "Not compiled"}
+                    </span>
+                    <Eye className="w-4 h-4" />
+                  </div>
+                </div>
+              </div>
+              <div
+                ref={previewRef}
+                className="flex-1 overflow-auto"
+                onScroll={() => {
+                  if (scrollSyncTimeoutRef.current) {
+                    clearTimeout(scrollSyncTimeoutRef.current);
+                  }
+                }}
+              >
+                <div className="flex-1 p-6">
+                  {isProcessing ? (
+                    <div className={`flex flex-col items-center justify-center h-64 ${
+                      darkMode ? "text-gray-400" : "text-gray-500"
+                    }`}>
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mb-4"></div>
+                      <p className="text-sm">Processing markdown...</p>
+                    </div>
+                  ) : processedContent ? (
+                    <MathJaxContext config={mathJaxConfig}>
+                      <MathJax>
+                        <div 
+                          className={`prose prose-lg max-w-none ${
+                            darkMode ? "prose-invert" : ""
+                          }`}
+                          style={{
+                            fontSize: "16px",
+                            lineHeight: "1.6",
+                            wordWrap: "break-word",
+                            overflowWrap: "break-word",
+                          }}
+                          dangerouslySetInnerHTML={{
+                            __html: processedContent
+                          }}
+                        />
+                      </MathJax>
+                    </MathJaxContext>
+                  ) : (
+                    <div
+                      className={`flex flex-col items-center justify-center h-64 ${
+                        darkMode ? "text-gray-400" : "text-gray-500"
+                      }`}
+                    >
+                      <Play className="w-12 h-12 mb-4 opacity-50" />
+                      <p className="text-lg font-medium mb-2">
+                        Preview not compiled
+                      </p>
+                      <p className="text-sm text-center">
+                        Click the &quot;Compile&quot; button to render the
+                        markdown preview,
+                        <br />
+                        or enable &quot;Auto&quot; for real-time compilation.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           )}
         </div>
+        {/* --- FIX ENDS HERE --- */}
 
-        {/* Status Bar */}
-        <div className="bg-gray-100 border-t border-gray-200 px-4 py-2 text-xs text-gray-500">
+        <div
+          className={`border-t px-4 py-2 text-xs transition-colors duration-200 ${
+            darkMode
+              ? "bg-gray-800 border-gray-700 text-gray-400"
+              : "bg-gray-100 border-gray-200 text-gray-500"
+          }`}
+        >
+          {/* Footer content remains the same */}
           <div className="flex justify-between items-center">
-            <span>Lines: {markdownContent.split('\n').length} | Characters: {markdownContent.length} | Words: {markdownContent.split(/\s+/).filter(word => word.length > 0).length}</span>
-            <span>LaTeX supported • Auto-save enabled</span>
+            <div className="flex items-center space-x-4">
+              <span>Lines: {markdownContent.split("\n").length}</span>
+              <span>Characters: {markdownContent.length}</span>
+              <span>
+                Words:{" "}
+                {
+                  markdownContent.split(/\s+/).filter((word) => word.length > 0)
+                    .length
+                }
+              </span>
+              {showPreview && (
+                <span className="flex items-center">
+                  <Eye className="w-3 h-3 mr-1" />
+                  {autoCompile ? "Auto Preview" : "Manual Preview"}
+                </span>
+              )}
+              {showPreview && (
+                <span
+                  className={`flex items-center text-xs ${
+                    compiledContent === markdownContent
+                      ? "text-green-600 dark:text-green-400"
+                      : "text-yellow-600 dark:text-yellow-400"
+                  }`}
+                >
+                  <div
+                    className={`w-2 h-2 rounded-full mr-1 ${
+                      compiledContent === markdownContent
+                        ? "bg-green-500"
+                        : "bg-yellow-500"
+                    }`}
+                  ></div>
+                  {compiledContent === markdownContent
+                    ? "Compiled"
+                    : "Needs compile"}
+                </span>
+              )}
+            </div>
+            <div className="flex items-center space-x-4">
+              <span>LaTeX & Math supported</span>
+              <span>Auto-save enabled</span>
+              {connectionStatus === "connected" && connectedUsers.size > 1 && (
+                <span className="flex items-center">
+                  <div className="w-2 h-2 bg-green-500 rounded-full mr-1"></div>
+                  {connectedUsers.size} collaborator
+                  {connectedUsers.size > 1 ? "s" : ""}
+                </span>
+              )}
+            </div>
           </div>
         </div>
       </div>
       <style jsx global>{`
+        /* Container width constraints */
+        .markflow-editor {
+          max-width: 100vw !important;
+          width: 100% !important;
+          overflow-x: hidden !important;
+        }
+        
+        /* Editor and preview width constraints */
+        .markflow-codemirror {
+          max-width: 100% !important;
+          overflow-x: auto !important;
+        }
+        
+        .markflow-preview {
+          max-width: 50% !important;
+          overflow-x: auto !important;
+        }
+
+        /* Text wrapping for CodeMirror editor */
+        .cm-editor {
+          white-space: pre-wrap !important;
+          word-wrap: break-word !important;
+          overflow-wrap: break-word !important;
+        }
+        
+        .cm-line {
+          white-space: pre-wrap !important;
+          word-wrap: break-word !important;
+          overflow-wrap: break-word !important;
+        }
+
+        /* Comment sidebar layout adjustments */
+        .pr-80 {
+          padding-right: 20rem !important;
+          transition: padding-right 0.3s ease !important;
+        }
+        
+        /* Document sidebar layout adjustments */
+        .pl-64 {
+          padding-left: 16rem !important;
+          transition: padding-left 0.3s ease !important;
+        }
+        
+        /* Responsive width adjustments for comment sidebar */
+        .pr-80 .markflow-codemirror,
+        .pr-80 .markflow-preview {
+          max-width: calc(50% - 10rem) !important;
+        }
+        
+        /* Responsive width adjustments for document sidebar */
+        .pl-64 .markflow-codemirror,
+        .pl-64 .markflow-preview {
+          max-width: calc(50% - 8rem) !important;
+        }
+        
+        /* Combined sidebar adjustments */
+        .pl-64.pr-80 .markflow-codemirror,
+        .pl-64.pr-80 .markflow-preview {
+          max-width: calc(50% - 18rem) !important;
+        }
+        
+        /* Ensure proper text wrapping in narrow widths */
+        @media (max-width: 1200px) {
+          .pr-80 {
+            padding-right: 16rem !important;
+          }
+          .pl-64 {
+            padding-left: 14rem !important;
+          }
+        }
+        
+        @media (max-width: 1024px) {
+          .pr-80 {
+            padding-right: 14rem !important;
+          }
+          .pl-64 {
+            padding-left: 12rem !important;
+          }
+        }
+
+        /* Table styles for GitHub Flavored Markdown */
+        .prose table {
+          border-collapse: collapse !important;
+          width: 100% !important;
+          margin: 1.5rem 0 !important;
+          border: 1px solid ${darkMode ? "#4a5568" : "#e5e7eb"} !important;
+          border-radius: 0.5rem !important;
+          overflow: hidden !important;
+        }
+        .prose thead {
+          background-color: ${darkMode ? "#2d3748" : "#f9fafb"} !important;
+        }
+        .prose th {
+          padding: 0.75rem 1rem !important;
+          text-align: left !important;
+          font-weight: 600 !important;
+          border-bottom: 2px solid ${darkMode ? "#4a5568" : "#d1d5db"} !important;
+          border-right: 1px solid ${darkMode ? "#4a5568" : "#e5e7eb"} !important;
+          color: ${darkMode ? "#f7fafc" : "#374151"} !important;
+        }
+        .prose th:last-child {
+          border-right: none !important;
+        }
+        .prose td {
+          padding: 0.75rem 1rem !important;
+          border-bottom: 1px solid ${darkMode ? "#4a5568" : "#e5e7eb"} !important;
+          border-right: 1px solid ${darkMode ? "#4a5568" : "#e5e7eb"} !important;
+          color: ${darkMode ? "#e2e8f0" : "#374151"} !important;
+        }
+        .prose td:last-child {
+          border-right: none !important;
+        }
+        .prose tbody tr:hover {
+          background-color: ${darkMode ? "rgba(74, 85, 104, 0.3)" : "rgba(249, 250, 251, 0.8)"} !important;
+        }
+        .prose tbody tr:last-child td {
+          border-bottom: none !important;
+        }
+
+        /* Task list styles */
+        .prose .task-list-item {
+          list-style: none !important;
+          margin-left: -1.5rem !important;
+          padding-left: 0 !important;
+          display: flex !important;
+          align-items: flex-start !important;
+          gap: 0.5rem !important;
+        }
+        .prose .task-list-item input[type="checkbox"] {
+          margin: 0.25rem 0 0 0 !important;
+          accent-color: ${darkMode ? "#63b3ed" : "#3b82f6"} !important;
+          cursor: pointer !important;
+        }
+        .prose .task-list-item input[type="checkbox"]:checked + span {
+          text-decoration: line-through !important;
+          color: ${darkMode ? "#a0aec0" : "#6b7280"} !important;
+        }
+
+        /* Syntax highlighting styles */
+        .prose .hljs {
+          display: block !important;
+          overflow-x: auto !important;
+          padding: 1rem !important;
+          background-color: ${darkMode ? "#2d3748" : "#f8fafc"} !important;
+          color: ${darkMode ? "#e2e8f0" : "#334155"} !important;
+          border-radius: 0.5rem !important;
+          font-size: 0.875rem !important;
+          line-height: 1.5 !important;
+        }
+        .prose .hljs-comment,
+        .prose .hljs-quote {
+          color: ${darkMode ? "#a0aec0" : "#64748b"} !important;
+          font-style: italic !important;
+        }
+        .prose .hljs-keyword,
+        .prose .hljs-selector-tag,
+        .prose .hljs-subst {
+          color: ${darkMode ? "#f687b3" : "#db2777"} !important;
+          font-weight: 600 !important;
+        }
+        .prose .hljs-number,
+        .prose .hljs-literal,
+        .prose .hljs-variable,
+        .prose .hljs-template-variable,
+        .prose .hljs-tag .hljs-attr {
+          color: ${darkMode ? "#fbb6ce" : "#be185d"} !important;
+        }
+        .prose .hljs-string,
+        .prose .hljs-doctag {
+          color: ${darkMode ? "#68d391" : "#059669"} !important;
+        }
+        .prose .hljs-title,
+        .prose .hljs-section,
+        .prose .hljs-selector-id {
+          color: ${darkMode ? "#63b3ed" : "#3b82f6"} !important;
+          font-weight: 600 !important;
+        }
+        .prose .hljs-subst {
+          font-weight: normal !important;
+        }
+        .prose .hljs-type,
+        .prose .hljs-class .hljs-title {
+          color: ${darkMode ? "#fbb6ce" : "#be185d"} !important;
+          font-weight: 600 !important;
+        }
+        .prose .hljs-tag,
+        .prose .hljs-name,
+        .prose .hljs-attribute {
+          color: ${darkMode ? "#81e6d9" : "#0891b2"} !important;
+          font-weight: normal !important;
+        }
+        .prose .hljs-regexp,
+        .prose .hljs-link {
+          color: ${darkMode ? "#f6ad55" : "#ea580c"} !important;
+        }
+        .prose .hljs-symbol,
+        .prose .hljs-bullet {
+          color: ${darkMode ? "#a78bfa" : "#7c3aed"} !important;
+        }
+        .prose .hljs-built_in,
+        .prose .hljs-builtin-name {
+          color: ${darkMode ? "#fbb6ce" : "#be185d"} !important;
+        }
+        .prose .hljs-meta {
+          color: ${darkMode ? "#a0aec0" : "#64748b"} !important;
+        }
+        .prose .hljs-deletion {
+          background-color: ${darkMode ? "rgba(252, 165, 165, 0.2)" : "rgba(254, 202, 202, 0.3)"} !important;
+        }
+        .prose .hljs-addition {
+          background-color: ${darkMode ? "rgba(167, 243, 208, 0.2)" : "rgba(187, 247, 208, 0.3)"} !important;
+        }
+        .prose .hljs-emphasis {
+          font-style: italic !important;
+        }
+        .prose .hljs-strong {
+          font-weight: bold !important;
+        }
+
+        /* Enhanced list styles */
+        .prose ul ul,
+        .prose ul ol,
+        .prose ol ul,
+        .prose ol ol {
+          margin-top: 0.5rem !important;
+          margin-bottom: 0.5rem !important;
+        }
+        .prose ul li {
+          position: relative !important;
+        }
+        .prose ul li::marker {
+          color: ${darkMode ? "#63b3ed" : "#3b82f6"} !important;
+        }
+        .prose ol li::marker {
+          color: ${darkMode ? "#63b3ed" : "#3b82f6"} !important;
+          font-weight: 600 !important;
+        }
+
+        /* Enhanced inline code styles */
+        .prose :not(pre) > code {
+          font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace !important;
+          font-weight: 500 !important;
+        }
+
+        /* Footnote styles */
+        .prose .footnote-ref {
+          color: ${darkMode ? "#63b3ed" : "#3b82f6"} !important;
+          text-decoration: none !important;
+          font-size: 0.75rem !important;
+          vertical-align: super !important;
+          font-weight: 600 !important;
+        }
+        .prose .footnote-ref:hover {
+          text-decoration: underline !important;
+        }
+        .prose .footnotes {
+          margin-top: 2rem !important;
+          padding-top: 1rem !important;
+          border-top: 1px solid ${darkMode ? "#4a5568" : "#e5e7eb"} !important;
+          font-size: 0.875rem !important;
+        }
+        .prose .footnotes ol {
+          padding-left: 1rem !important;
+        }
+        .prose .footnote-backref {
+          color: ${darkMode ? "#63b3ed" : "#3b82f6"} !important;
+          text-decoration: none !important;
+          margin-left: 0.5rem !important;
+        }
+
+        .cm-editor .cm-cursor {
+          border-left: 2px solid #60a5fa !important;
+          margin-left: -1px !important;
+          height: 1.2em !important;
+          animation: cm-blink 1.2s infinite !important;
+          display: block !important;
+        }
+
+        .cm-comment-highlight {
+          background-color: rgba(99, 179, 237, 0.2);
+          border-bottom: 2px solid rgba(99, 179, 237, 0.6);
+          cursor: pointer;
+        }
+        
+        .cm-comment-highlight-active {
+          background-color: rgba(99, 179, 237, 0.4);
+          border-bottom: 2px solid rgba(99, 179, 237, 0.9);
+          cursor: pointer;
+        }
+        .cm-editor.cm-focused .cm-cursor {
+          border-left: 2px solid #60a5fa !important;
+          display: block !important;
+        }
+        .cm-editor .cm-content {
+          caret-color: #60a5fa !important;
+        }
+        .cm-editor .cm-ySelectionInfo {
+          position: absolute !important;
+          top: -1.8em !important;
+          left: -1px !important;
+          font-size: 0.7em !important;
+          font-family:
+            system-ui,
+            -apple-system,
+            sans-serif !important;
+          font-weight: 600 !important;
+          line-height: 1.2 !important;
+          padding: 0.2em 0.5em !important;
+          color: white !important;
+          white-space: nowrap !important;
+          border-radius: 6px !important;
+          z-index: 1000 !important;
+          box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3) !important;
+          border: 1px solid rgba(255, 255, 255, 0.2) !important;
+          backdrop-filter: blur(4px) !important;
+          pointer-events: none !important;
+        }
+        .cm-editor .cm-yCursor {
+          position: relative !important;
+          border-left: 2px solid !important;
+          margin-left: -1px !important;
+          margin-right: -1px !important;
+          box-sizing: border-box !important;
+          z-index: 100 !important;
+          height: 1.2em !important;
+          animation: y-cursor-flash 1.2s infinite !important;
+        }
+        .cm-editor .cm-ySelection {
+          border-radius: 3px !important;
+          opacity: 0.25 !important;
+          mix-blend-mode: multiply !important;
+        }
+        @keyframes cm-blink {
+          0% {
+            opacity: 1;
+          }
+          50% {
+            opacity: 0;
+          }
+          100% {
+            opacity: 1;
+          }
+        }
+        @keyframes y-cursor-flash {
+          0% {
+            opacity: 1;
+          }
+          50% {
+            opacity: 0.3;
+          }
+          100% {
+            opacity: 1;
+          }
+        }
         .markflow-codemirror .cm-editor {
           height: 100%;
-          font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace;
+          font-family:
+            "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier,
+            monospace;
           font-size: 0.875rem;
           line-height: 1.625;
+          -webkit-user-select: text !important;
+          user-select: text !important;
+        }
+        .markflow-codemirror .cm-content {
+          padding: 1.5rem !important;
+          min-height: calc(100vh - 200px) !important;
+          max-width: 100% !important;
+          word-wrap: break-word !important;
+          overflow-wrap: break-word !important;
+          white-space: pre-wrap !important;
+          -webkit-user-select: text !important;
+          user-select: text !important;
+          cursor: text !important;
         }
         .markflow-codemirror .cm-editor.cm-focused {
           outline: none;
         }
+        .markflow-preview {
+          font-family:
+            -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Oxygen",
+            "Ubuntu", "Cantarell", sans-serif;
+        }
+        .markflow-preview .prose {
+          max-width: none !important;
+          width: 100% !important;
+        }
+        .preview-content {
+          display: flex;
+          flex-direction: column;
+        }
+        .preview-line {
+          display: flex;
+          align-items: flex-start;
+          min-height: 1.5rem;
+          line-height: 1.5;
+          word-wrap: break-word;
+          overflow-wrap: break-word;
+          white-space: pre-wrap;
+          margin: 0;
+          padding: 0;
+        }
+        .preview-line span {
+          width: 100%;
+          display: inline-block;
+          word-wrap: break-word;
+          overflow-wrap: break-word;
+          white-space: pre-wrap;
+        }
+        .preview-line:hover {
+          background-color: ${darkMode
+            ? "rgba(59, 130, 246, 0.1)"
+            : "rgba(59, 130, 246, 0.05)"} !important;
+        }
+        .preview-content {
+          width: 100%;
+        }
         .prose {
-          color: ${darkMode ? '#e2e8f0' : '#374151'};
+          color: ${darkMode ? "#e2e8f0" : "#374151"};
+          font-size: 16px !important;
+          line-height: 1.5 !important;
         }
         .prose h1 {
-          font-size: 2em;
-          margin-bottom: 0.5em;
-          border-bottom: 1px solid ${darkMode ? '#4a5568' : '#e5e7eb'};
-          padding-bottom: 0.3em;
-          color: ${darkMode ? '#f7fafc' : '#111827'};
+          font-size: 2.25rem !important;
+          font-weight: 700 !important;
+          margin-top: 0 !important;
+          margin-bottom: 1rem !important;
+          border-bottom: 2px solid ${darkMode ? "#4a5568" : "#e5e7eb"};
+          padding-bottom: 0.5rem !important;
+          color: ${darkMode ? "#f7fafc" : "#111827"};
+          line-height: 1.2 !important;
         }
         .prose h2 {
-          font-size: 1.5em;
-          margin-bottom: 0.5em;
-          border-bottom: 1px solid ${darkMode ? '#4a5568' : '#e5e7eb'};
-          padding-bottom: 0.3em;
-          color: ${darkMode ? '#e2e8f0' : '#1f2937'};
+          font-size: 1.875rem !important;
+          font-weight: 600 !important;
+          margin-top: 2rem !important;
+          margin-bottom: 1rem !important;
+          border-bottom: 1px solid ${darkMode ? "#4a5568" : "#e5e7eb"};
+          padding-bottom: 0.4rem !important;
+          color: ${darkMode ? "#e2e8f0" : "#1f2937"};
+          line-height: 1.3 !important;
         }
         .prose h3 {
-          font-size: 1.25em;
-          margin-bottom: 0.5em;
-          color: ${darkMode ? '#cbd5e0' : '#374151'};
+          font-size: 1.5rem !important;
+          font-weight: 600 !important;
+          margin-top: 1.5rem !important;
+          margin-bottom: 0.75rem !important;
+          color: ${darkMode ? "#cbd5e0" : "#374151"};
+          line-height: 1.4 !important;
         }
         .prose p {
-          margin-bottom: 1em;
-          line-height: 1.6;
+          margin-bottom: 1.25rem !important;
+          line-height: 1.7 !important;
+          word-wrap: break-word !important;
+          overflow-wrap: break-word !important;
         }
-        .prose ul, .prose ol {
-          margin-left: 1.5em;
-          margin-bottom: 1em;
+        .prose ul,
+        .prose ol {
+          margin-left: 1.5rem !important;
+          margin-bottom: 1.25rem !important;
+          padding-left: 0.5rem !important;
         }
         .prose li {
-          margin-bottom: 0.5em;
+          margin-bottom: 0.5rem !important;
+          line-height: 1.6 !important;
         }
         .prose pre {
-          background-color: ${darkMode ? '#2d3748' : '#f3f4f6'};
-          padding: 1em;
-          border-radius: 0.25rem;
-          overflow-x: auto;
-          margin-bottom: 1em;
+          background-color: ${darkMode ? "#2d3748" : "#f7fafc"} !important;
+          padding: 1.25rem !important;
+          border-radius: 0.5rem !important;
+          overflow-x: auto !important;
+          margin-bottom: 1.25rem !important;
+          border: 1px solid ${darkMode ? "#4a5568" : "#e2e8f0"} !important;
+          font-size: 0.875rem !important;
+          line-height: 1.5 !important;
         }
         .prose code {
-          background-color: ${darkMode ? '#2d3748' : '#f3f4f6'};
-          padding: 0.2em 0.4em;
-          border-radius: 0.2rem;
-          font-size: 85%;
-          color: ${darkMode ? '#f6ad55' : '#ef4444'};
+          background-color: ${darkMode ? "#2d3748" : "#f1f5f9"} !important;
+          padding: 0.25rem 0.5rem !important;
+          border-radius: 0.25rem !important;
+          font-size: 0.875rem !important;
+          color: ${darkMode ? "#f6ad55" : "#dc2626"} !important;
+          border: 1px solid ${darkMode ? "#4a5568" : "#e2e8f0"} !important;
         }
         .prose pre code {
-          background-color: transparent;
-          padding: 0;
-          color: ${darkMode ? '#e2e8f0' : '#1f2937'};
+          background-color: transparent !important;
+          padding: 0 !important;
+          border: none !important;
+          color: ${darkMode ? "#e2e8f0" : "#1f2937"} !important;
         }
         .prose blockquote {
-          border-left: 0.25em solid ${darkMode ? '#63b3ed' : '#3b82f6'};
-          padding-left: 1em;
-          color: ${darkMode ? '#a0aec0' : '#6b7280'};
-          margin-bottom: 1em;
-          font-style: italic;
+          border-left: 0.25rem solid ${darkMode ? "#63b3ed" : "#3b82f6"} !important;
+          padding-left: 1.5rem !important;
+          padding-right: 1rem !important;
+          padding-top: 0.5rem !important;
+          padding-bottom: 0.5rem !important;
+          color: ${darkMode ? "#a0aec0" : "#6b7280"} !important;
+          margin-bottom: 1.25rem !important;
+          font-style: italic !important;
+          background-color: ${darkMode
+            ? "rgba(99, 179, 237, 0.1)"
+            : "rgba(59, 130, 246, 0.05)"} !important;
+          border-radius: 0 0.25rem 0.25rem 0 !important;
+          position: relative !important;
+        }
+        
+        .prose blockquote::before {
+          content: 'Reviewer Comment' !important;
+          font-style: normal !important;
+          font-weight: bold !important;
+          display: block !important;
+          margin-bottom: 0.5rem !important;
+          color: ${darkMode ? "#63b3ed" : "#3b82f6"} !important;
+          font-size: 0.875rem !important;
+          text-transform: uppercase !important;
+          letter-spacing: 0.05em !important;
+        }
+        
+        .prose blockquote p {
+          margin-bottom: 0.75rem !important;
+        }
+        
+        .prose table {
+          width: 100% !important;
+          border-collapse: collapse !important;
+          margin: 1.5rem 0 !important;
+          font-size: 0.875rem !important;
+        }
+        
+        .prose th {
+          background-color: ${darkMode ? "#2d3748" : "#f8fafc"} !important;
+          border: 1px solid ${darkMode ? "#4a5568" : "#e2e8f0"} !important;
+          padding: 0.75rem !important;
+          text-align: left !important;
+          font-weight: 600 !important;
+          color: ${darkMode ? "#e2e8f0" : "#374151"} !important;
+        }
+        
+        .prose td {
+          border: 1px solid ${darkMode ? "#4a5568" : "#e2e8f0"} !important;
+          padding: 0.75rem !important;
+          color: ${darkMode ? "#e2e8f0" : "#374151"} !important;
+        }
+        
+        .prose tr:nth-child(even) {
+          background-color: ${darkMode ? "rgba(45, 55, 72, 0.3)" : "rgba(248, 250, 252, 0.5)"} !important;
+        }
+        
+        .prose .footnotes {
+          margin-top: 2rem !important;
+          padding-top: 1rem !important;
+          border-top: 1px solid ${darkMode ? "#4a5568" : "#e2e8f0"} !important;
+          font-size: 0.875rem !important;
+          color: ${darkMode ? "#a0aec0" : "#6b7280"} !important;
+        }
+        
+        .prose .footnotes ol {
+          margin-left: 1rem !important;
+        }
+        
+        .prose .footnotes li {
+          margin-bottom: 0.25rem !important;
+        }
+        
+        .prose sub {
+          font-size: 0.75em !important;
+          vertical-align: sub !important;
+        }
+        
+        .prose sup {
+          font-size: 0.75em !important;
+          vertical-align: super !important;
+        }
+        
+        .prose abbr {
+          border-bottom: 1px dotted ${darkMode ? "#a0aec0" : "#6b7280"} !important;
+          cursor: help !important;
         }
         .prose hr {
-          border: none;
-          border-top: 1px solid ${darkMode ? '#4a5568' : '#e5e7eb'};
-          margin: 1em 0;
+          border: none !important;
+          border-top: 2px solid ${darkMode ? "#4a5568" : "#e5e7eb"} !important;
+          margin: 2rem 0 !important;
         }
         .prose a {
-          color: ${darkMode ? '#63b3ed' : '#3b82f6'};
-          text-decoration: underline;
+          color: ${darkMode ? "#63b3ed" : "#3b82f6"} !important;
+          text-decoration: underline !important;
+          text-underline-offset: 2px !important;
+          transition: color 0.2s ease !important;
         }
         .prose a:hover {
-          color: ${darkMode ? '#4299e1' : '#2563eb'};
+          color: ${darkMode ? "#4299e1" : "#2563eb"} !important;
+          text-decoration: underline !important;
         }
         .prose del {
-          text-decoration: line-through;
-          color: ${darkMode ? '#a0aec0' : '#6b7280'};
+          text-decoration: line-through !important;
+          color: ${darkMode ? "#a0aec0" : "#6b7280"} !important;
+        }
+        .prose strong {
+          font-weight: 600 !important;
+          color: ${darkMode ? "#f7fafc" : "#111827"} !important;
+        }
+        .prose em {
+          font-style: italic !important;
+          color: ${darkMode ? "#e2e8f0" : "#374151"} !important;
         }
         .math-block {
-          display: block;
-          overflow-x: auto;
-          margin: 1em 0;
-          padding: 0.5em;
-          border-radius: 4px;
-          text-align: center;
+          display: block !important;
+          overflow-x: auto !important;
+          margin: 1.5rem 0 !important;
+          padding: 1rem !important;
+          border-radius: 0.5rem !important;
+          text-align: center !important;
+          background-color: ${darkMode
+            ? "rgba(45, 55, 72, 0.8)"
+            : "rgba(248, 250, 252, 0.8)"} !important;
+          border: 1px solid ${darkMode ? "#4a5568" : "#e2e8f0"} !important;
+          backdrop-filter: blur(4px) !important;
         }
         .math-inline {
-          display: inline-block;
-          white-space: nowrap;
+          display: inline-block !important;
+          white-space: nowrap !important;
+          padding: 0.2rem 0.4rem !important;
+          margin: 0 0.1rem !important;
+          border-radius: 0.25rem !important;
+          background-color: ${darkMode
+            ? "rgba(45, 55, 72, 0.6)"
+            : "rgba(248, 250, 252, 0.6)"} !important;
+          border: 1px solid ${darkMode ? "#4a5568" : "#e2e8f0"} !important;
         }
         .markflow-preview .MathJax {
-          margin: 1em 0;
+          margin: 1.5rem 0 !important;
+          font-size: 1.1em !important;
         }
         .markflow-preview .MathJax_Display {
-          margin: 1em 0;
-          overflow-x: auto;
-          overflow-y: hidden;
+          margin: 1.5rem 0 !important;
+          overflow-x: auto !important;
+          overflow-y: hidden !important;
+          text-align: center !important;
+        }
+        @media (max-width: 768px) {
+          .markflow-preview {
+            font-size: 14px !important;
+          }
+          .prose h1 {
+            font-size: 1.875rem !important;
+          }
+          .prose h2 {
+            font-size: 1.5rem !important;
+          }
+          .prose h3 {
+            font-size: 1.25rem !important;
+          }
         }
         .prose-invert {
-          --tw-prose-body: ${darkMode ? '#e2e8f0' : '#374151'};
-          --tw-prose-headings: ${darkMode ? '#f7fafc' : '#111827'};
-          --tw-prose-lead: ${darkMode ? '#a0aec0' : '#4b5563'};
-          --tw-prose-links: ${darkMode ? '#63b3ed' : '#3b82f6'};
-          --tw-prose-bold: ${darkMode ? '#f7fafc' : '#111827'};
-          --tw-prose-counters: ${darkMode ? '#a0aec0' : '#6b7280'};
-          --tw-prose-bullets: ${darkMode ? '#a0aec0' : '#d1d5db'};
-          --tw-prose-hr: ${darkMode ? '#4a5568' : '#e5e7eb'};
-          --tw-prose-quotes: ${darkMode ? '#e2e8f0' : '#111827'};
-          --tw-prose-quote-borders: ${darkMode ? '#4a5568' : '#e5e7eb'};
-          --tw-prose-captions: ${darkMode ? '#a0aec0' : '#6b7280'};
-          --tw-prose-code: ${darkMode ? '#f6ad55' : '#ef4444'};
-          --tw-prose-pre-code: ${darkMode ? '#e2e8f0' : '#1f2937'};
-          --tw-prose-pre-bg: ${darkMode ? '#2d3748' : '#f3f4f6'};
-          --tw-prose-th-borders: ${darkMode ? '#4a5568' : '#d1d5db'};
-          --tw-prose-td-borders: ${darkMode ? '#4a5568' : '#e5e7eb'};
+          --tw-prose-body: ${darkMode ? "#e2e8f0" : "#374151"};
+          --tw-prose-headings: ${darkMode ? "#f7fafc" : "#111827"};
+          --tw-prose-lead: ${darkMode ? "#a0aec0" : "#4b5563"};
+          --tw-prose-links: ${darkMode ? "#63b3ed" : "#3b82f6"};
+          --tw-prose-bold: ${darkMode ? "#f7fafc" : "#111827"};
+          --tw-prose-counters: ${darkMode ? "#a0aec0" : "#6b7280"};
+          --tw-prose-bullets: ${darkMode ? "#a0aec0" : "#d1d5db"};
+          --tw-prose-hr: ${darkMode ? "#4a5568" : "#e5e7eb"};
+          --tw-prose-quotes: ${darkMode ? "#e2e8f0" : "#111827"};
+          --tw-prose-quote-borders: ${darkMode ? "#4a5568" : "#e5e7eb"};
+          --tw-prose-captions: ${darkMode ? "#a0aec0" : "#6b7280"};
+          --tw-prose-code: ${darkMode ? "#f6ad55" : "#ef4444"};
+          --tw-prose-pre-code: ${darkMode ? "#e2e8f0" : "#1f2937"};
+          --tw-prose-pre-bg: ${darkMode ? "#2d3748" : "#f3f4f6"};
+          --tw-prose-th-borders: ${darkMode ? "#4a5568" : "#d1d5db"};
+          --tw-prose-td-borders: ${darkMode ? "#4a5568" : "#e5e7eb"};
         }
       `}</style>
+
+      <CommentButton
+        isVisible={commentButtonState.isVisible}
+        position={commentButtonState.position}
+        onClick={() => setIsCommentSidebarOpen(true)}
+      />
+
+      <CommentSidebar
+        isOpen={isCommentSidebarOpen}
+        onClose={() => {
+          setIsCommentSidebarOpen(false);
+          dismissCommentButton();
+        }}
+        comments={comments}
+        onCommentAction={handleCommentAction}
+        selectedText={commentButtonState.isVisible ? commentButtonState.selectedText : undefined}
+        selection={commentButtonState.selection}
+        darkMode={darkMode}
+        activeCommentId={activeCommentId || undefined}
+        setActiveCommentId={(id) => handleSetActiveComment(id || null)}
+      />
     </MathJaxContext>
   );
 };

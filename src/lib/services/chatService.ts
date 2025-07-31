@@ -1,8 +1,9 @@
 import { connectToDatabase } from '@/lib/mongodb/connect'
-import WorkspaceChat from '@/lib/mongodb/models/WorkspaceChat'
-import ChatMessage from '@/lib/mongodb/models/ChatMessage'
-import Workspace from '@/lib/mongodb/models/Workspace'
 import mongoose from 'mongoose'
+//import WorkspaceChat from '@/lib/mongodb/models/WorkspaceChat'
+import WorkspaceChat from '@/lib/mongodb/models/WorkspaceChat'
+import Workspace from '@/lib/mongodb/models/Workspace' // ✅ needed so it's registered
+import ChatMessage from '@/lib/mongodb/models/ChatMessage'
 import User from '@/lib/mongodb/models/User'
 
 // Create WorkspaceChat when a workspace is created
@@ -87,6 +88,7 @@ export async function sendMessage({
       workspace: workspaceId,
       sender: senderId,
       message,
+      fileUrl: null, // Assuming no file upload for this example
       timestamp: new Date(),
     })
 
@@ -94,6 +96,21 @@ export async function sendMessage({
   } catch (error) {
     console.error('Error sending message:', error)
     return null
+  }
+}
+
+export async function getWorkspaceChatlist(userid: string) {
+  try {
+    await connectToDatabase()
+    console.log('Getting workspace chat list for user:', userid)
+    const chats = await WorkspaceChat.find({ participants: userid })
+      .populate('workspace', 'name')
+      .sort({ updatedAt: -1 })
+
+    return chats
+  } catch (error) {
+    console.error('Error getting workspace chat list:', error)
+    return []
   }
 }
 

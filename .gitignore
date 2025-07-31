@@ -13,10 +13,13 @@
 
 # testing
 /coverage
+/public/uploads
 
 # next.js
 /.next/
 /out/
+/.partykit/
+/.partykit
 
 # production
 /build

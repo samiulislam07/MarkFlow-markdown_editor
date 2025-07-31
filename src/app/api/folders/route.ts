@@ -5,6 +5,9 @@ import Folder from '@/lib/mongodb/models/Folder';
 import User from '@/lib/mongodb/models/User';
 import Workspace, { ICollaborator } from '@/lib/mongodb/models/Workspace';
 
+// Add this line to prevent caching of the GET request
+export const dynamic = 'force-dynamic';
+
 // GET - Fetch folders for a workspace
 export async function GET(request: NextRequest) {
   try {
