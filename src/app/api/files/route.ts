@@ -7,6 +7,9 @@ import User from '@/lib/mongodb/models/User';
 import Workspace, { ICollaborator } from '@/lib/mongodb/models/Workspace';
 import supabase from '@/lib/supabase'
 
+// ADDED: This line prevents Next.js from caching the GET response
+export const dynamic = 'force-dynamic';
+
 // This config is important to prevent Next.js from trying to parse the body as JSON
 export const config = {
   api: {
@@ -14,26 +17,30 @@ export const config = {
   },
 };
 
-// GET - Fetch files for a workspace/folder (No changes needed here)
+// GET - Fetch files for a workspace/folder
 export async function GET(request: NextRequest) {
   try {
     const { userId } = await auth();
     if (!userId) {
+      console.log('Unauthorized access attempt');
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     await connectToDatabase();
+    console.log('Connected to database');
 
     const { searchParams } = new URL(request.url);
     const workspaceId = searchParams.get('workspaceId');
     const folderId = searchParams.get('folderId');
 
     if (!workspaceId) {
+      console.log('Missing workspaceId');
       return NextResponse.json({ error: 'Workspace ID is required' }, { status: 400 });
     }
 
     const user = await User.findOne({ clerkId: userId });
     if (!user) {
+      console.log('User not found in database');
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
@@ -68,7 +75,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST - Upload a new file (Updated Logic)
+// POST - Upload a new file
 export async function POST(request: NextRequest) {
   try {
     const { userId } = await auth();
@@ -109,7 +116,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Construct the file path for Supabase storage (e.g., 'uploads/filename')
-     const fileBlob = file as unknown as Blob;
+    const fileBlob = file as unknown as Blob;
     const arrayBuffer = await fileBlob.arrayBuffer();
     const fileBuffer = Buffer.from(arrayBuffer);
 
@@ -132,10 +139,6 @@ export async function POST(request: NextRequest) {
     const { data: publicData } = supabase.storage.from('uploads').getPublicUrl(filePath);
     const publicUrl = publicData?.publicUrl;
 
-
-    // --- File Storage Logic ---
-    // This is where you would upload the file to a cloud storage provider (e.g., Vercel Blob, AWS S3).
-    // For now, we'll continue to use a placeholder URL.
     const storageUrl = publicUrl;
 
     console.log('File uploaded to:', storageUrl);

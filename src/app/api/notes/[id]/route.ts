@@ -9,14 +9,8 @@ import Tag from '@/lib/mongodb/models/Tag';
 
 export const dynamic = 'force-dynamic';
 
-interface RouteParams {
-  params: {
-    id: string;
-  };
-}
-
 // GET - Fetch a specific note
-export async function GET(request: NextRequest, { params }: RouteParams) {
+export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
   try {
     const { id } = params;
     const { userId } = await auth();
@@ -59,7 +53,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 }
 
 // PUT - Update a specific note
-export async function PUT(request: NextRequest, { params }: RouteParams) {
+export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
   try {
     const { id } = params;
     const { userId } = await auth();

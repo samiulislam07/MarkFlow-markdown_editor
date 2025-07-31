@@ -5,10 +5,8 @@ import Folder from '@/lib/mongodb/models/Folder';
 import User from '@/lib/mongodb/models/User';
 import Workspace, { ICollaborator } from '@/lib/mongodb/models/Workspace';
 
-// Add this line to prevent caching of the GET request
 export const dynamic = 'force-dynamic';
 
-// GET - Fetch folders for a workspace
 export async function GET(request: NextRequest) {
   try {
     const { userId } = await auth();
@@ -48,11 +46,15 @@ export async function GET(request: NextRequest) {
 
     const query: any = { workspace: workspaceId };
     
-    if (parentId) {
+    // --- START: CORRECTED LOGIC ---
+    // This now correctly handles the string "null" from the URL parameter.
+    if (parentId && parentId !== 'null') {
       query.parent = parentId;
     } else {
       query.parent = null;
     }
+    // --- END: CORRECTED LOGIC ---
+
 
     if (!includeArchived) {
       query.isArchived = false;
@@ -61,6 +63,15 @@ export async function GET(request: NextRequest) {
     const folders = await Folder.find(query)
       .populate('creator', 'name email avatar')
       .populate('notes', 'title updatedAt')
+      .populate({
+        path: 'files',
+        model: 'File',
+        populate: {
+          path: 'uploader',
+          model: 'User',
+          select: 'name email avatar'
+        }
+      })
       .sort({ position: 1, createdAt: 1 });
 
     return NextResponse.json(folders);
@@ -71,7 +82,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST - Create a new folder
+// POST function remains unchanged...
 export async function POST(request: NextRequest) {
   try {
     const { userId } = await auth();

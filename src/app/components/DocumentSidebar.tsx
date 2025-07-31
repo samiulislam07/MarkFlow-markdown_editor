@@ -1,152 +1,221 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { ChevronRight, ChevronDown, FileText, Plus, Folder } from 'lucide-react';
+import { useState, useEffect, useCallback, FC } from 'react';
+import { ChevronRight, Folder, FileText, Plus, Loader2 } from 'lucide-react';
+import Link from 'next/link';
 
-interface Document {
+// --- TYPE DEFINITIONS ---
+// Using more specific names to avoid conflicts and improve clarity.
+interface NoteItem {
   _id: string;
   title: string;
-  content: string;
-  workspaceId: string;
-  createdAt: string;
-  updatedAt: string;
 }
 
-interface Workspace {
+interface FolderItem {
   _id: string;
   name: string;
-  description?: string;
-  createdAt: string;
-  updatedAt: string;
 }
 
+interface FolderChildren {
+  folders: FolderItem[];
+  notes: NoteItem[];
+}
+
+// --- PROPS ---
 interface DocumentSidebarProps {
   currentDocumentId?: string;
   currentWorkspaceId?: string;
-  onDocumentSelect?: (documentId: string) => void;
-  onNewDocument?: (workspaceId: string) => void;
+  onNewDocument: (workspaceId: string, folderId?: string) => void;
   className?: string;
 }
 
+interface FolderProps {
+  folder: FolderItem;
+  level: number;
+  currentDocumentId?: string;
+  onNewDocument: (workspaceId: string, folderId?: string) => void;
+  currentWorkspaceId: string;
+}
+
+// --- RECURSIVE FOLDER COMPONENT ---
+// This component renders a single folder and fetches its children when expanded.
+const FolderTreeItem: FC<FolderProps> = ({
+  folder,
+  level,
+  currentDocumentId,
+  onNewDocument,
+  currentWorkspaceId,
+}) => {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [children, setChildren] = useState<FolderChildren | null>(null);
+
+  const fetchChildren = useCallback(async () => {
+    if (children) return; // Already fetched
+
+    setIsLoading(true);
+    try {
+      const [foldersRes, notesRes] = await Promise.all([
+        fetch(`/api/folders?workspaceId=${currentWorkspaceId}&parentId=${folder._id}`),
+        fetch(`/api/notes?workspaceId=${currentWorkspaceId}&folderId=${folder._id}`),
+      ]);
+
+      if (!foldersRes.ok || !notesRes.ok) {
+        throw new Error('Failed to fetch folder contents');
+      }
+
+      const foldersData = await foldersRes.json();
+      const notesData = await notesRes.json();
+
+      setChildren({
+        folders: foldersData,
+        notes: Array.isArray(notesData) ? notesData : notesData.notes || [],
+      });
+    } catch (error) {
+      console.error(`Error fetching children for folder ${folder._id}:`, error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [folder._id, currentWorkspaceId, children]);
+
+  const handleToggle = () => {
+    const newExpandedState = !isExpanded;
+    setIsExpanded(newExpandedState);
+    if (newExpandedState && !children) {
+      fetchChildren();
+    }
+  };
+
+  const paddingLeft = `${level * 16}px`;
+
+  return (
+    <div>
+      {/* Folder Row */}
+      <div
+        className="flex items-center justify-between p-2 rounded-md hover:bg-gray-100 cursor-pointer"
+        style={{ paddingLeft }}
+        onClick={handleToggle}
+      >
+        <div className="flex items-center truncate">
+          <ChevronRight
+            className={`w-4 h-4 mr-2 flex-shrink-0 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+          />
+          <Folder className="w-4 h-4 mr-2 text-gray-600 flex-shrink-0" />
+          <span className="text-sm text-gray-800 truncate">{folder.name}</span>
+        </div>
+        {isLoading && <Loader2 className="w-4 h-4 animate-spin text-gray-500" />}
+      </div>
+
+      {/* Children (Sub-folders and Notes) */}
+      {isExpanded && children && (
+        <div className="border-l border-gray-200 ml-4">
+          {/* Render Sub-folders */}
+          {children.folders.map((subFolder) => (
+            <FolderTreeItem
+              key={subFolder._id}
+              folder={subFolder}
+              level={level + 1}
+              currentDocumentId={currentDocumentId}
+              onNewDocument={onNewDocument}
+              currentWorkspaceId={currentWorkspaceId}
+            />
+          ))}
+          {/* Render Notes in this folder */}
+          {children.notes.map((note) => (
+            <Link
+              href={`/editor/${note._id}`}
+              key={note._id}
+              className={`flex items-center p-2 rounded-md hover:bg-gray-100 cursor-pointer ${
+                currentDocumentId === note._id ? 'bg-blue-50' : ''
+              }`}
+              style={{ paddingLeft: `${(level + 1) * 16}px` }}
+            >
+              <FileText className="w-4 h-4 mr-2 text-gray-500 flex-shrink-0" />
+              <span
+                className={`text-sm truncate ${
+                  currentDocumentId === note._id
+                    ? 'text-blue-700 font-medium'
+                    : 'text-gray-700'
+                }`}
+              >
+                {note.title || 'Untitled'}
+              </span>
+            </Link>
+          ))}
+           {/* Add new document button inside folder */}
+           <button
+             onClick={() => onNewDocument(currentWorkspaceId, folder._id)}
+             className="flex items-center w-full text-left p-2 rounded-md hover:bg-gray-100 text-gray-500"
+             style={{ paddingLeft: `${(level + 1) * 16}px` }}
+           >
+             <Plus className="w-4 h-4 mr-2" />
+             <span className="text-sm">New Document</span>
+           </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
+
+// --- MAIN SIDEBAR COMPONENT ---
 const DocumentSidebar: React.FC<DocumentSidebarProps> = ({
   currentDocumentId,
   currentWorkspaceId,
-  onDocumentSelect,
   onNewDocument,
   className = '',
 }) => {
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
-  const [documents, setDocuments] = useState<{ [workspaceId: string]: Document[] }>({});
-  const [expandedWorkspaces, setExpandedWorkspaces] = useState<Set<string>>(new Set());
-  const [loading, setLoading] = useState(true);
+  const [rootFolders, setRootFolders] = useState<FolderItem[]>([]);
+  const [rootNotes, setRootNotes] = useState<NoteItem[]>([]);
+  const [workspaceName, setWorkspaceName] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch workspaces
-  const fetchWorkspaces = useCallback(async () => {
+  const fetchWorkspaceRootContent = useCallback(async (workspaceId: string) => {
+    setIsLoading(true);
+    setError(null);
     try {
-      const response = await fetch('/api/workspaces');
-      if (!response.ok) {
-        throw new Error('Failed to fetch workspaces');
-      }
-      const data = await response.json();
-      
-      // Filter to show only the current workspace if specified
-      const filteredWorkspaces = currentWorkspaceId 
-        ? data.filter((workspace: Workspace) => workspace._id === currentWorkspaceId)
-        : data;
-      
-      setWorkspaces(filteredWorkspaces);
-      
-      // Auto-expand current workspace
-      if (currentWorkspaceId) {
-        setExpandedWorkspaces(prev => new Set([...prev, currentWorkspaceId]));
-      } else if (filteredWorkspaces.length > 0) {
-        // If no specific workspace, auto-expand the first one
-        setExpandedWorkspaces(prev => new Set([...prev, filteredWorkspaces[0]._id]));
-      }
-    } catch (err) {
-      console.error('Error fetching workspaces:', err);
-      setError('Failed to load workspaces');
-    }
-  }, [currentWorkspaceId]);
+      // Fetch workspace details, root folders, and root notes in parallel
+      const [workspaceRes, foldersRes, notesRes] = await Promise.all([
+        fetch(`/api/workspaces?id=${workspaceId}`), // Assuming an endpoint to get workspace details by ID
+        fetch(`/api/folders?workspaceId=${workspaceId}&parentId=null`),
+        fetch(`/api/notes?workspaceId=${workspaceId}&folder=null`),
+      ]);
 
-  // Fetch documents for a specific workspace
-  const fetchDocuments = useCallback(async (workspaceId: string) => {
-    try {
-      const response = await fetch(`/api/notes?workspaceId=${workspaceId}`);
-      if (!response.ok) {
-        throw new Error('Failed to fetch documents');
+      if (!workspaceRes.ok || !foldersRes.ok || !notesRes.ok) {
+        throw new Error('Failed to load workspace content');
       }
-      const data = await response.json();
-      // Handle both old format (direct array) and new format (object with notes property)
-      const notesArray = Array.isArray(data) ? data : data.notes || [];
-      setDocuments(prev => ({
-        ...prev,
-        [workspaceId]: notesArray
-      }));
+
+      const workspaceData = await workspaceRes.json();
+      const foldersData = await foldersRes.json();
+      const notesData = await notesRes.json();
+
+      setWorkspaceName(workspaceData.name || 'Workspace');
+      setRootFolders(foldersData);
+      setRootNotes(Array.isArray(notesData) ? notesData : notesData.notes || []);
+
     } catch (err) {
-      console.error(`Error fetching documents for workspace ${workspaceId}:`, err);
-      setError('Failed to load documents');
+      console.error('Error fetching workspace content:', err);
+      setError('Failed to load content.');
+    } finally {
+      setIsLoading(false);
     }
   }, []);
 
-  // Initial load
   useEffect(() => {
-    const loadData = async () => {
-      setLoading(true);
-      await fetchWorkspaces();
-      setLoading(false);
-    };
-    loadData();
-  }, [fetchWorkspaces]);
-
-  // Fetch documents when workspace is expanded OR when showing single workspace
-  useEffect(() => {
-    // Auto-load documents for single workspace view
-    if (currentWorkspaceId && workspaces.length === 1) {
-      const workspace = workspaces[0];
-      if (!documents[workspace._id]) {
-        fetchDocuments(workspace._id);
-      }
+    if (currentWorkspaceId) {
+      fetchWorkspaceRootContent(currentWorkspaceId);
+    } else {
+      setIsLoading(false);
+      setError('No workspace selected.');
     }
-    
-    // Load documents for expanded workspaces
-    expandedWorkspaces.forEach(workspaceId => {
-      if (!documents[workspaceId]) {
-        fetchDocuments(workspaceId);
-      }
-    });
-  }, [expandedWorkspaces, documents, fetchDocuments, currentWorkspaceId, workspaces]);
+  }, [currentWorkspaceId, fetchWorkspaceRootContent]);
 
-  const toggleWorkspace = useCallback((workspaceId: string) => {
-    setExpandedWorkspaces(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(workspaceId)) {
-        newSet.delete(workspaceId);
-      } else {
-        newSet.add(workspaceId);
-      }
-      return newSet;
-    });
-  }, []);
-
-  const handleDocumentClick = useCallback((documentId: string) => {
-    onDocumentSelect?.(documentId);
-  }, [onDocumentSelect]);
-
-  const handleNewDocument = useCallback((workspaceId: string) => {
-    onNewDocument?.(workspaceId);
-  }, [onNewDocument]);
-
-  if (loading) {
+  if (isLoading) {
     return (
-      <div className={`w-64 bg-gray-50 border-r border-gray-200 flex flex-col ${className}`}>
-        <div className="p-4">
-          <div className="animate-pulse">
-            <div className="h-4 bg-gray-300 rounded mb-2"></div>
-            <div className="h-4 bg-gray-300 rounded mb-2"></div>
-            <div className="h-4 bg-gray-300 rounded"></div>
-          </div>
+      <div className={`w-64 bg-gray-50 border-r border-gray-200 p-4 ${className}`}>
+        <div className="flex items-center justify-center h-full">
+            <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
         </div>
       </div>
     );
@@ -154,155 +223,67 @@ const DocumentSidebar: React.FC<DocumentSidebarProps> = ({
 
   if (error) {
     return (
-      <div className={`w-64 bg-gray-50 border-r border-gray-200 flex flex-col ${className}`}>
-        <div className="p-4">
-          <div className="text-red-600 text-sm">
-            {error}
-          </div>
-        </div>
+      <div className={`w-64 bg-gray-50 border-r border-gray-200 p-4 ${className}`}>
+        <p className="text-red-500 text-sm">{error}</p>
       </div>
     );
   }
 
   return (
-    <div className={`w-60 bg-gray-50 border-r border-gray-200 flex flex-col ${className}`}>
+    <div className={`w-64 bg-gray-50 border-r border-gray-200 flex flex-col ${className}`}>
+      {/* Header */}
       <div className="p-4 border-b border-gray-200 mt-12">
-        <h2 className="text-sm font-semibold text-gray-900">
-          {currentWorkspaceId ? 'Documents' : 'All Documents'}
+        <h2 className="text-sm font-semibold text-gray-900 truncate">
+          {workspaceName}
         </h2>
-        {currentWorkspaceId && workspaces.length > 0 && (
-          <p className="text-xs text-gray-500 mt-1">
-            {workspaces[0].name}
-          </p>
-        )}
       </div>
-      
-      <div className="flex-1 overflow-y-auto">
-        {workspaces.map((workspace) => {
-          const isExpanded = expandedWorkspaces.has(workspace._id);
-          const workspaceDocuments = documents[workspace._id] || [];
-          
-          // If we're showing only current workspace, show documents directly
-          if (currentWorkspaceId && workspaces.length === 1) {
-            return (
-              <div key={workspace._id} className="p-2">
-                {/* New Document Button */}
-                <button
-                  onClick={() => handleNewDocument(workspace._id)}
-                  className="w-full flex items-center px-3 py-2 mb-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg border border-gray-200 hover:border-gray-300 transition-colors"
-                >
-                  <Plus className="w-4 h-4 mr-2" />
-                  New Document
-                </button>
 
-                {/* Documents List */}
-                <div className="space-y-1">
-                  {workspaceDocuments.length === 0 ? (
-                    <div className="px-3 py-2 text-xs text-gray-500 text-center">
-                      No documents yet
-                    </div>
-                  ) : (
-                    workspaceDocuments.map((document) => (
-                      <div
-                        key={document._id}
-                        className={`flex items-center px-3 py-2 hover:bg-gray-100 cursor-pointer rounded-lg transition-colors ${
-                          currentDocumentId === document._id
-                            ? 'bg-blue-50 border border-blue-200'
-                            : 'border border-transparent'
-                        }`}
-                        onClick={() => handleDocumentClick(document._id)}
-                      >
-                        <FileText className="w-4 h-4 text-gray-500 mr-3 flex-shrink-0" />
-                        <span className={`text-sm truncate ${
-                          currentDocumentId === document._id
-                            ? 'text-blue-700 font-medium'
-                            : 'text-gray-700'
-                        }`}>
-                          {document.title || 'Untitled Document'}
-                        </span>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            );
-          }
+      {/* Content */}
+      <div className="flex-1 overflow-y-auto p-2 space-y-1">
+        {/* New Document at Root */}
+        <button
+          onClick={() => onNewDocument(currentWorkspaceId!)}
+          className="flex items-center w-full p-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg"
+        >
+          <Plus className="w-4 h-4 mr-2" />
+          New Document
+        </button>
 
-          // Otherwise show full workspace tree view
-          return (
-            <div key={workspace._id} className="border-b border-gray-200">
-              {/* Workspace Header */}
-              <div
-                className="flex items-center justify-between p-3 hover:bg-gray-100 cursor-pointer"
-                onClick={() => toggleWorkspace(workspace._id)}
-              >
-                <div className="flex items-center flex-1 min-w-0">
-                  {isExpanded ? (
-                    <ChevronDown className="w-4 h-4 text-gray-500 mr-2 flex-shrink-0" />
-                  ) : (
-                    <ChevronRight className="w-4 h-4 text-gray-500 mr-2 flex-shrink-0" />
-                  )}
-                  <Folder className="w-4 h-4 text-gray-600 mr-2 flex-shrink-0" />
-                  <span className="text-sm font-medium text-gray-900 truncate">
-                    {workspace.name}
-                  </span>
-                </div>
-                <div className="flex items-center space-x-1">
-                  <span className="text-xs text-gray-500">
-                    {workspaceDocuments.length}
-                  </span>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleNewDocument(workspace._id);
-                    }}
-                    className="p-1 hover:bg-gray-200 rounded"
-                    title="New document"
-                  >
-                    <Plus className="w-3 h-3 text-gray-500" />
-                  </button>
-                </div>
-              </div>
+        {/* Root Folders */}
+        {rootFolders.map((folder) => (
+          <FolderTreeItem
+            key={folder._id}
+            folder={folder}
+            level={0}
+            currentDocumentId={currentDocumentId}
+            onNewDocument={onNewDocument}
+            currentWorkspaceId={currentWorkspaceId!}
+          />
+        ))}
 
-              {/* Documents List */}
-              {isExpanded && (
-                <div className="bg-white">
-                  {workspaceDocuments.length === 0 ? (
-                    <div className="px-8 py-2 text-xs text-gray-500">
-                      No documents yet
-                    </div>
-                  ) : (
-                    workspaceDocuments.map((document) => (
-                      <div
-                        key={document._id}
-                        className={`flex items-center px-8 py-2 hover:bg-gray-50 cursor-pointer border-l-2 ${
-                          currentDocumentId === document._id
-                            ? 'border-blue-500 bg-blue-50'
-                            : 'border-transparent'
-                        }`}
-                        onClick={() => handleDocumentClick(document._id)}
-                      >
-                        <FileText className="w-4 h-4 text-gray-500 mr-2 flex-shrink-0" />
-                        <span className={`text-sm truncate ${
-                          currentDocumentId === document._id
-                            ? 'text-blue-700 font-medium'
-                            : 'text-gray-700'
-                        }`}>
-                          {document.title || 'Untitled Document'}
-                        </span>
-                      </div>
-                    ))
-                  )}
-                </div>
-              )}
-            </div>
-          );
-        })}
-        
-        {workspaces.length === 0 && (
-          <div className="p-4 text-center">
-            <div className="text-gray-500 text-sm">No workspaces found</div>
-          </div>
+        {/* Root Notes */}
+        {rootNotes.map((note) => (
+          <Link
+            href={`/editor/${note._id}`}
+            key={note._id}
+            className={`flex items-center p-2 rounded-md hover:bg-gray-100 cursor-pointer ${
+              currentDocumentId === note._id ? 'bg-blue-50' : ''
+            }`}
+          >
+            <FileText className="w-4 h-4 mr-2 text-gray-500 flex-shrink-0" />
+            <span
+              className={`text-sm truncate ${
+                currentDocumentId === note._id
+                  ? 'text-blue-700 font-medium'
+                  : 'text-gray-700'
+              }`}
+            >
+              {note.title || 'Untitled'}
+            </span>
+          </Link>
+        ))}
+         {!isLoading && rootFolders.length === 0 && rootNotes.length === 0 && (
+            <p className="p-4 text-xs text-gray-500 text-center">This workspace is empty.</p>
         )}
       </div>
     </div>

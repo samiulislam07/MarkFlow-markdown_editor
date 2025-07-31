@@ -70,26 +70,25 @@ export default function FileManager({ workspaceId, userRole }: FileManagerProps)
     setIsLoading(true)
     setError(null)
     try {
-      const folderParams = new URLSearchParams({ workspaceId });
-      if (folderId) folderParams.set('parentId', folderId);
-
-      const fileParams = new URLSearchParams({ workspaceId });
-      if (folderId) fileParams.set('folderId', folderId);
+      // Construct proper URL with workspaceId
+      let url = `/api/files?workspaceId=${workspaceId}`;
       
-      const noteParams = new URLSearchParams({ workspaceId });
-      if (folderId) noteParams.set('folderId', folderId);
-      else noteParams.set('folder', 'null');
-
+      // Add folderId if it exists
+      if (folderId) {
+        url += `&folderId=${folderId}`;
+      }
+  
       const [folderRes, fileRes, notesRes] = await Promise.all([
-        fetch(`/api/folders?${folderParams.toString()}`),
-        fetch(`/api/files?${fileParams.toString()}`),
-        fetch(`/api/notes?${noteParams.toString()}`)
+        fetch(`/api/folders?workspaceId=${workspaceId}${folderId ? `&parentId=${folderId}` : ''}`),
+        fetch(url), // Use the constructed URL
+        fetch(`/api/notes?workspaceId=${workspaceId}${folderId ? `&folderId=${folderId}` : '&folder=null'}`)
       ]);
-
+  
+      // Rest of the code remains the same
       if (!folderRes.ok) throw new Error('Failed to fetch folders');
       if (!fileRes.ok) throw new Error('Failed to fetch files');
       if (!notesRes.ok) throw new Error('Failed to fetch notes');
-
+  
       const [folderData, fileData, notesData] = await Promise.all([
         folderRes.json(),
         fileRes.json(),
@@ -99,7 +98,7 @@ export default function FileManager({ workspaceId, userRole }: FileManagerProps)
       setFolders(folderData);
       setFiles(fileData);
       setNotes(notesData);
-
+  
     } catch (err: any) {
       setError(err.message)
     } finally {
