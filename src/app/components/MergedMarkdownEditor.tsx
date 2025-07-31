@@ -2219,8 +2219,7 @@ const md = new MarkdownIt({
           setIsCommentSidebarOpen(false);
           dismissCommentButton();
         }}
-        comments={comments}
-        onCommentAction={handleCommentAction}
+        noteId={documentId}                      // <-- ADD THIS (assuming 'documentId' is available in this component)
         selectedText={commentButtonState.isVisible ? commentButtonState.selectedText : undefined}
         selection={commentButtonState.selection}
         darkMode={darkMode}

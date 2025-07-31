@@ -20,6 +20,14 @@ export const commentSchema = new Schema(
       trim: true,
       maxlength: 2000 
     },
+    // --- START: ADDED FIELD ---
+    // This field will store the quoted text from the document.
+    selectedText: {
+      type: String,
+      trim: true,
+      default: null,
+    },
+    // --- END: ADDED FIELD ---
     isResolved: { 
       type: Boolean, 
       default: false 
@@ -34,14 +42,13 @@ export const commentSchema = new Schema(
       type: Schema.Types.ObjectId, 
       ref: 'User' 
     }],
+    // --- START: MODIFIED FIELD ---
+    // This now matches the { from, to } structure sent from the frontend.
     position: {
-      line: { type: Number },
-      character: { type: Number },
-      selection: {
-        start: { type: Number },
-        end: { type: Number }
-      }
+      from: { type: Number },
+      to: { type: Number }
     },
+    // --- END: MODIFIED FIELD ---
     reactions: [{
       user: { 
         type: Schema.Types.ObjectId, 
@@ -74,4 +81,4 @@ commentSchema.index({ parent: 1 });
 commentSchema.index({ createdAt: -1 });
 commentSchema.index({ isResolved: 1 });
 commentSchema.index({ mentions: 1 });
-commentSchema.index({ note: 1, createdAt: -1 }); // Compound index for note comments 
+commentSchema.index({ note: 1, createdAt: -1 }); // Compound index for note comments

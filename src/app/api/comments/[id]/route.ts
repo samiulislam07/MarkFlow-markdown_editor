@@ -4,10 +4,15 @@ import { connectToDatabase } from '@/lib/mongodb/connect';
 import Comment from '@/lib/mongodb/models/Comment';
 import User from '@/lib/mongodb/models/User';
 
-export async function PUT(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+// Define the type for the route params
+interface RouteParams {
+  params: {
+    id: string;
+  };
+}
+
+// PUT - Update a specific comment
+export async function PUT(request: NextRequest, { params }: RouteParams) {
   try {
     const { userId } = await auth();
     if (!userId) {
@@ -16,28 +21,25 @@ export async function PUT(
 
     await connectToDatabase();
 
-    const { id } = await params;
+    const { id } = params;
     const body = await request.json();
     const { content, isResolved } = body;
 
-    // Find the comment
-    const comment = await Comment.findById(id).populate('author');
+    const comment = await Comment.findById(id);
     if (!comment) {
       return NextResponse.json({ error: 'Comment not found' }, { status: 404 });
     }
 
-    // Find current user
     const user = await User.findOne({ clerkId: userId });
     if (!user) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
-    // Check if user is the author of the comment
-    if (comment.author._id.toString() !== user._id.toString()) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    // Allow only the author to edit the content
+    if (content !== undefined && comment.author.toString() !== user._id.toString()) {
+      return NextResponse.json({ error: 'Forbidden: Only the author can edit the comment.' }, { status: 403 });
     }
 
-    // Update comment
     const updateData: any = {};
     if (content !== undefined) {
       updateData.content = content.trim();
@@ -52,7 +54,7 @@ export async function PUT(
       id,
       updateData,
       { new: true }
-    ).populate('author', 'firstName lastName email');
+    ).populate('author', 'firstName lastName email avatar'); // Ensure avatar is populated
 
     return NextResponse.json(updatedComment);
   } catch (error) {
@@ -64,10 +66,8 @@ export async function PUT(
   }
 }
 
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+// DELETE - Delete a specific comment
+export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
     const { userId } = await auth();
     if (!userId) {
@@ -76,31 +76,23 @@ export async function DELETE(
 
     await connectToDatabase();
 
-    const { id } = await params;
-
-    // Find the comment
-    const comment = await Comment.findById(id).populate('author');
+    const { id } = params;
+    const comment = await Comment.findById(id);
     if (!comment) {
       return NextResponse.json({ error: 'Comment not found' }, { status: 404 });
     }
 
-    // Find current user
     const user = await User.findOne({ clerkId: userId });
     if (!user) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
-    // Check if user is the author of the comment
-    if (comment.author._id.toString() !== user._id.toString()) {
+    if (comment.author.toString() !== user._id.toString()) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    // Delete the comment and its replies
     await Comment.deleteMany({
-      $or: [
-        { _id: id },
-        { parent: id }
-      ]
+      $or: [{ _id: id }, { parent: id }]
     });
 
     return NextResponse.json({ message: 'Comment deleted successfully' });
@@ -111,4 +103,4 @@ export async function DELETE(
       { status: 500 }
     );
   }
-} 
+}
