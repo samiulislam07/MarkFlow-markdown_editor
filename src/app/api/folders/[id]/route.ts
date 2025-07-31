@@ -7,29 +7,78 @@ import File from '@/lib/mongodb/models/File';
 import User from '@/lib/mongodb/models/User';
 import Workspace, { ICollaborator } from '@/lib/mongodb/models/Workspace';
 import mongoose from 'mongoose';
+import supabase from '@/lib/supabase';
 
 export const dynamic = 'force-dynamic';
 
+// --- START: ADDED PUT FUNCTION FOR RENAMING ---
+export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
+  try {
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    await connectToDatabase();
+    const { id } = params;
+    const { name } = await request.json();
+
+    if (!name) {
+      return NextResponse.json({ error: 'Folder name is required' }, { status: 400 });
+    }
+
+    const folder = await Folder.findById(id);
+    if (!folder) {
+      return NextResponse.json({ error: 'Folder not found' }, { status: 404 });
+    }
+
+    const user = await User.findOne({ clerkId: userId });
+    if (!user) {
+      return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    }
+
+    const workspace = await Workspace.findById(folder.workspace);
+    if (!workspace) {
+      return NextResponse.json({ error: 'Workspace not found' }, { status: 404 });
+    }
+
+    const hasWriteAccess = workspace.owner.toString() === user._id.toString() ||
+      workspace.collaborators.some((collab: ICollaborator) => 
+        collab.user.toString() === user._id.toString() && collab.role === 'editor'
+      );
+
+    if (!hasWriteAccess) {
+      return NextResponse.json({ error: 'You do not have permission to rename this folder.' }, { status: 403 });
+    }
+
+    folder.name = name;
+    await folder.save();
+
+    return NextResponse.json(folder);
+
+  } catch (error) {
+    console.error('Error renaming folder:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}
+// --- END: ADDED PUT FUNCTION ---
+
 // Recursive function to delete a folder and all its contents
 async function deleteFolderRecursive(folderId: mongoose.Types.ObjectId) {
-  // Find all subfolders
   const subFolders = await Folder.find({ parent: folderId });
   for (const subFolder of subFolders) {
     await deleteFolderRecursive(subFolder._id);
   }
 
-  // Find and delete all files in the current folder
   const filesInFolder = await File.find({ folder: folderId });
   for (const file of filesInFolder) {
-    // IMPORTANT: In a real app, delete files from cloud storage here
-    // e.g., await del(file.storageUrl);
+    if (file.filePath) {
+        await supabase.storage.from('uploads').remove([file.filePath]);
+    }
     await File.findByIdAndDelete(file._id);
   }
   
-  // Delete all notes in the current folder
   await Note.deleteMany({ folder: folderId });
-
-  // Delete the folder itself
   await Folder.findByIdAndDelete(folderId);
 }
 
@@ -69,7 +118,7 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
       return NextResponse.json({ error: 'You do not have permission to delete this folder.' }, { status: 403 });
     }
     
-    await deleteFolderRecursive(folder._id);
+    await deleteFolderRecursive(new mongoose.Types.ObjectId(id));
 
     return NextResponse.json({ message: 'Folder and its contents deleted successfully' });
 

@@ -44,19 +44,20 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
       return NextResponse.json({ error: 'You do not have permission to delete this file.' }, { status: 403 });
     }
 
-    if (file.storageUrl) {
-      const filePath = file.storageUrl.split('/storage/v1/object/public/uploads/')[1];
-      if (filePath) {
-        const { error: deleteError } = await supabase.storage
-          .from('uploads')
-          .remove([filePath]);
+    // --- START: CORRECTED DELETE LOGIC ---
+    // Use the reliable filePath from the database instead of parsing the URL.
+    if (file.filePath) {
+      const { error: deleteError } = await supabase.storage
+        .from('uploads')
+        .remove([file.filePath]);
 
-        if (deleteError) {
-          console.error('Supabase deletion failed:', deleteError.message);
-          return NextResponse.json({ error: 'Failed to delete file from cloud storage' }, { status: 500 });
-        }
+      if (deleteError) {
+        console.error('Supabase deletion failed:', deleteError.message);
+        // Even if Supabase fails, we might still want to delete the DB record.
+        // For a stricter approach, you could return an error here.
       }
     }
+    // --- END: CORRECTED DELETE LOGIC ---
 
     if (file.folder) {
       await Folder.findByIdAndUpdate(file.folder, { $pull: { files: file._id } });

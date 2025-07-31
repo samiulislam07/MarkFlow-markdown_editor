@@ -9,16 +9,23 @@ export const fileSchema = new Schema(
       trim: true,
       maxlength: 255 
     },
-    // The URL pointing to the file in your storage provider (e.g., Vercel Blob, S3)
     storageUrl: { 
       type: String, 
       required: true 
     },
-    fileType: { // MIME type, e.g., 'application/pdf' or 'image/png'
+    // --- START: ADDED FIELD ---
+    // This will store the exact path within the Supabase bucket (e.g., 'user_id-timestamp-filename.pdf')
+    filePath: {
+      type: String,
+      required: true,
+      unique: true
+    },
+    // --- END: ADDED FIELD ---
+    fileType: {
       type: String, 
       required: true 
     },
-    fileSize: { // Size in bytes
+    fileSize: {
       type: Number, 
       required: true 
     },
@@ -27,10 +34,10 @@ export const fileSchema = new Schema(
       ref: 'Workspace', 
       required: true
     },
-    folder: { // The folder this file belongs to
+    folder: {
       type: Schema.Types.ObjectId, 
       ref: 'Folder',
-      default: null // null for root files in a workspace
+      default: null
     },
     uploader: { 
       type: Schema.Types.ObjectId, 

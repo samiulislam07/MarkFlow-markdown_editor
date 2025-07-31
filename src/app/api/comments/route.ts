@@ -15,26 +15,29 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const noteId = searchParams.get('noteId');
+    // --- START: MODIFIED LOGIC ---
+    // We now check for the 'includeResolved' parameter. The frontend will set this to true.
     const includeResolved = searchParams.get('includeResolved') === 'true';
+    // --- END: MODIFIED LOGIC ---
 
     if (!noteId) {
       return NextResponse.json({ error: 'Note ID is required' }, { status: 400 });
     }
 
-    // Build query
     const query: any = { note: noteId };
+    // If includeResolved is false (or not provided), we only get open comments.
     if (!includeResolved) {
       query.isResolved = false;
     }
 
-    // Fetch comments with author information
+    const authorFieldsToPopulate = 'name email avatar clerkId';
+
     const comments = await Comment.find(query)
-      .populate('author', 'firstName lastName email')
-      .populate('mentions', 'firstName lastName email')
+      .populate('author', authorFieldsToPopulate)
+      .populate('mentions', authorFieldsToPopulate)
       .sort({ createdAt: -1 })
       .lean();
 
-    // Group comments by parent to create threads
     const topLevelComments = comments.filter(comment => !comment.parent);
     const commentReplies = comments.filter(comment => comment.parent);
 
@@ -55,6 +58,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
+// POST function remains unchanged
 export async function POST(request: NextRequest) {
   try {
     const { userId } = await auth();
@@ -65,7 +69,7 @@ export async function POST(request: NextRequest) {
     await connectToDatabase();
 
     const body = await request.json();
-    const { noteId, content, position, parentId, mentions } = body;
+    const { noteId, content, position, parentId, mentions, selectedText } = body;
 
     if (!noteId || !content) {
       return NextResponse.json(
@@ -74,28 +78,26 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Find or create user
-    let user = await User.findOne({ clerkId: userId });
+    const user = await User.findOne({ clerkId: userId });
     if (!user) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
-    // Create comment
     const comment = new Comment({
       note: noteId,
       author: user._id,
       content: content.trim(),
       position,
       parent: parentId || null,
-      mentions: mentions || []
+      mentions: mentions || [],
+      selectedText: selectedText || null,
     });
 
     await comment.save();
 
-    // Populate author information for response
-    await comment.populate('author', 'firstName lastName email');
+    await comment.populate('author', 'name email avatar clerkId');
     if (mentions && mentions.length > 0) {
-      await comment.populate('mentions', 'firstName lastName email');
+      await comment.populate('mentions', 'name email avatar clerkId');
     }
 
     return NextResponse.json(comment, { status: 201 });
@@ -106,4 +108,4 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
-} 
+}

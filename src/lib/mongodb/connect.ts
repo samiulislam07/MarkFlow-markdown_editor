@@ -10,8 +10,10 @@ console.log(MONGODB_URI);
 export async function connectToDatabase() {
   // If already connected, return immediately
   if (isConnected && mongoose.connection.readyState === 1) {
+    console.log('Already connected to MongoDB');
     return;
   }
+  console.log('Connecting to MongoDB with URI:', MONGODB_URI);
 
   // If connection is in progress, wait for it
   if (connectionPromise) {

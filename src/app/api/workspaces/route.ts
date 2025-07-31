@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { connectToDatabase } from '@/lib/mongodb/connect';
-import Workspace from '@/lib/mongodb/models/Workspace';
+import Workspace, { ICollaborator } from '@/lib/mongodb/models/Workspace';
 import User from '@/lib/mongodb/models/User';
 import { sendInvitationEmail } from '@/lib/services/emailService';
 import { createWorkspaceChat, syncChatParticipants } from '@/lib/services/chatService'
@@ -9,7 +9,7 @@ import Chat from '@/lib/mongodb/models/WorkspaceChat'
 
 import crypto from 'crypto';
 
-// GET - Fetch user's workspaces
+// GET - Fetch user's workspaces OR a single workspace by ID
 export async function GET(request: NextRequest) {
   try {
     const { userId } = await auth();
@@ -25,9 +25,34 @@ export async function GET(request: NextRequest) {
     }
 
     const { searchParams } = new URL(request.url);
+    const workspaceId = searchParams.get('id'); // Check for a single workspace ID
+
+    // --- START: MODIFIED LOGIC ---
+    // If a specific workspace ID is provided, fetch that one.
+    if (workspaceId) {
+      const workspace = await Workspace.findById(workspaceId);
+
+      if (!workspace) {
+        return NextResponse.json({ error: 'Workspace not found' }, { status: 404 });
+      }
+
+      // Verify user has access to this specific workspace
+      const hasAccess = workspace.owner.toString() === user._id.toString() ||
+        workspace.collaborators.some((collab: ICollaborator) => collab.user.toString() === user._id.toString());
+
+      if (!hasAccess) {
+        return NextResponse.json({ error: 'Access denied' }, { status: 403 });
+      }
+
+      // Return the single workspace object
+      return NextResponse.json(workspace);
+    }
+    // --- END: MODIFIED LOGIC ---
+
+
+    // If no ID is provided, fetch all workspaces for the user (original logic)
     const includeArchived = searchParams.get('includeArchived') === 'true';
 
-    // Find workspaces where user is owner or collaborator
     const query: any = {
       $or: [
         { owner: user._id },
@@ -52,7 +77,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST - Create a new workspace
+// POST - Create a new workspace (No changes needed here)
 export async function POST(request: NextRequest) {
   try {
     const { userId } = await auth();
@@ -74,7 +99,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
-    // Process collaborator emails if provided - send invitations instead of adding directly
     const invitationResults = [];
     if (collaboratorEmails && Array.isArray(collaboratorEmails) && !isPersonal) {
       // We'll send invitations after workspace is created
@@ -84,7 +108,7 @@ export async function POST(request: NextRequest) {
       name,
       description: description || '',
       owner: user._id,
-      collaborators: [], // Start with empty collaborators, will be added via invitations
+      collaborators: [],
       isPersonal: isPersonal || false,
       settings: {
         theme: settings?.theme || 'auto',
@@ -94,26 +118,21 @@ export async function POST(request: NextRequest) {
 
     await workspace.save();
 
-    // Send invitations to collaborators after workspace is created
     if (collaboratorEmails && Array.isArray(collaboratorEmails) && !isPersonal) {
       for (const collaboratorData of collaboratorEmails) {
         const { email, role } = collaboratorData;
         
-        // Skip if user is trying to invite themselves
         if (email.toLowerCase() === user.email.toLowerCase()) {
           continue;
         }
 
-        // Generate invitation token
         const token = crypto.randomBytes(32).toString('hex');
         const expiresAt = new Date();
-        expiresAt.setDate(expiresAt.getDate() + 7); // 7 days expiry
+        expiresAt.setDate(expiresAt.getDate() + 7);
 
-        // Check if user exists
         const invitedUser = await User.findOne({ email: email.toLowerCase() });
         const hasAccount = !!invitedUser;
 
-        // Add invitation to workspace
         workspace.invitations.push({
           email: email.toLowerCase(),
           role: role || 'viewer',
@@ -124,7 +143,6 @@ export async function POST(request: NextRequest) {
           expiresAt
         });
 
-        // Send invitation email
         const emailResult = await sendInvitationEmail({
           to: email.toLowerCase(),
           inviterName: user.name,
@@ -145,7 +163,6 @@ export async function POST(request: NextRequest) {
         });
       }
 
-      // Save workspace with invitations
       await workspace.save();
     }
 
@@ -154,11 +171,9 @@ export async function POST(request: NextRequest) {
       { path: 'collaborators.user', select: 'name email avatar' }
     ]);
 
-
     await createWorkspaceChat(workspace._id.toString())
-    //await syncChatParticipants(workspace._id.toString())
-    
     await syncChatParticipants(workspace._id.toString())
+    
     return NextResponse.json({
       ...workspace.toObject(),
       invitationResults
@@ -168,4 +183,4 @@ export async function POST(request: NextRequest) {
     console.error('Error creating workspace:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
-} 
+}
