@@ -45,9 +45,9 @@ import 'highlight.js/styles/github-dark.css';
 
 // --- UPDATED COMMENTING SYSTEM IMPORTS ---
 import CommentButton from './CommentButton';
-import CommentSidebar, { type CommentAction } from './CommentSidebar';
+import CommentSidebar from './CommentSidebar';
 import { useCommentSelection } from '@/hooks/useCommentSelection';
-import { CommentData, CreateCommentData } from '@/types/comment';
+import { CommentData } from '@/types/comment'; // This type is now imported from your types file
 
 interface MarkdownEditorProps {
   documentId?: string;
@@ -57,6 +57,18 @@ interface MarkdownEditorProps {
   onDocumentSaved?: (newDocumentId: string) => void;
   isDocumentSidebarOpen?: boolean;
 }
+
+// Helper function to recursively find a comment by its ID
+const findCommentById = (comments: CommentData[], id: string): CommentData | null => {
+  for (const comment of comments) {
+    if (comment._id === id) return comment;
+    if (comment.replies) {
+      const foundInReply = findCommentById(comment.replies, id);
+      if (foundInReply) return foundInReply;
+    }
+  }
+  return null;
+};
 
 const MergedMarkdownEditor: React.FC<MarkdownEditorProps> = ({ 
   documentId, 
@@ -125,98 +137,75 @@ const MergedMarkdownEditor: React.FC<MarkdownEditorProps> = ({
   const { commentButtonState, showCommentButton, dismissCommentButton } = useCommentSelection();
   const [activeCommentId, setActiveCommentId] = useState<string | null>(null);
 
-  const commentDecorationField = StateField.define<DecorationSet>({
-  create() {
-    return Decoration.none;
-  },
-  update(decorations, tr) {
-    decorations = decorations.map(tr.changes);
+  // Effect to set the active highlight range
+  const setActiveHighlight = StateEffect.define<{ from: number; to: number } | null>();
 
-    for (const effect of tr.effects) {
-      if (effect.is(refreshDecorations)) {
-        const { ydoc, activeId } = effect.value;
-        const commentsArray = ydoc.getArray<Y.Map<any>>('comments');
-        const newDecorations: any[] = [];
-
-        commentsArray.forEach(commentMap => {
-          const comment = commentMap.toJSON();
-          try {
-            const startRelPos = JSON.parse(comment.anchorStart);
-            const endRelPos = JSON.parse(comment.anchorEnd);
-
-            const startAbsPos = Y.createAbsolutePositionFromRelativePosition(startRelPos, ydoc);
-            const endAbsPos = Y.createAbsolutePositionFromRelativePosition(endRelPos, ydoc);
-
-            if (startAbsPos && endAbsPos && startAbsPos.index < endAbsPos.index) {
-              const isActive = comment._id === activeId;
-              newDecorations.push(
-                Decoration.mark({
-                  class: isActive ? 'cm-comment-highlight-active' : 'cm-comment-highlight',
-                  attributes: { 'data-comment-id': comment._id },
-                }).range(startAbsPos.index, endAbsPos.index)
-              );
-            }
-          } catch (e) {
-            console.error("Could not resolve comment position", e);
+  // Field to store and draw the active highlight decoration
+  const activeHighlightField = StateField.define<DecorationSet>({
+    create() {
+      return Decoration.none;
+    },
+    update(decorations, tr) {
+      for (const effect of tr.effects) {
+        if (effect.is(setActiveHighlight)) {
+          if (effect.value) {
+            const { from, to } = effect.value;
+            const highlightMark = Decoration.mark({
+              class: 'cm-active-comment-scroll-highlight',
+            });
+            return Decoration.set([highlightMark.range(from, to)]);
+          } else {
+            return Decoration.none;
           }
-        });
-        return Decoration.set(newDecorations);
+        }
       }
-    }
-    return decorations;
-  },
-  provide: f => EditorView.decorations.from(f),
-});
+      return decorations.map(tr.changes);
+    },
+    provide: f => EditorView.decorations.from(f),
+  });
 
+  // This handler now finds the comment in the local state and highlights its position
   const handleSetActiveComment = useCallback((commentId: string | null) => {
     setActiveCommentId(commentId);
-    if (!commentId || !editorViewRef.current) return;
+    const view = editorViewRef.current;
+    if (!view) return;
 
-    const comment = ycomments.toArray().find(c => c.get('_id') === commentId);
-    if (comment) {
-        try {
-            const relPosJSON = JSON.parse(comment.get('anchorStart') as string);
-            const relativePosition = relPosJSON;
-            const absolutePosition = Y.createAbsolutePositionFromRelativePosition(relativePosition, doc);
-
-            if (absolutePosition) {
-              editorViewRef.current.dispatch({
-                  effects: EditorView.scrollIntoView(absolutePosition.index, { y: 'center' })
-              });
-            }
-        } catch (e) {
-            console.error("Failed to scroll to comment", e);
-        }
+    if (!commentId) {
+      view.dispatch({ effects: setActiveHighlight.of(null) });
+      return;
     }
-}, [ycomments, doc]);
 
-  useEffect(() => {
-    const syncComments = () => {
-      const currentComments = ycomments.toArray().map(ymap => ymap.toJSON() as CommentData);
-      
-      const commentMap = new Map(currentComments.map(c => [c._id, { ...c, replies: [] as CommentData[] }]));
-      const threadedComments: CommentData[] = [];
+    const comment = findCommentById(comments, commentId);
 
-      currentComments.forEach(comment => {
-        if (comment.parent) {
-          const parent = commentMap.get(comment.parent);
-          if (parent) {
-            parent.replies.push(commentMap.get(comment._id)!);
-          }
-        } else {
-          threadedComments.push(commentMap.get(comment._id)!);
-        }
+    if (comment && comment.position && typeof comment.position.from === 'number') {
+      const { from, to } = comment.position;
+      view.dispatch({
+        effects: [
+          setActiveHighlight.of({ from, to }),
+          EditorView.scrollIntoView(from, { y: 'center' })
+        ]
       });
-      
-      setComments(threadedComments);
+    } else {
+      view.dispatch({ effects: setActiveHighlight.of(null) });
+    }
+  }, [comments]); // Depends on the `comments` state
 
+  // Fetch comments from API to be used for highlighting
+  useEffect(() => {
+    const fetchComments = async () => {
+      if (!documentId) return;
+      try {
+        const response = await fetch(`/api/comments?noteId=${documentId}&includeResolved=true`);
+        if (response.ok) {
+          const data = await response.json();
+          setComments(data);
+        }
+      } catch (error) {
+        console.error("Failed to fetch comments for editor:", error);
+      }
     };
-
-    ycomments.observe(syncComments);
-    syncComments();
-
-    return () => ycomments.unobserve(syncComments);
-  }, [ycomments]);
+    fetchComments();
+  }, [documentId, isCommentSidebarOpen]); // Refetch when sidebar opens to get latest
 
   useEffect(() => {
     if (editorViewRef.current) {
@@ -225,85 +214,6 @@ const MergedMarkdownEditor: React.FC<MarkdownEditorProps> = ({
         });
     }
   }, [comments, activeCommentId, doc]);
-  
-  const handleCommentAction = useCallback((action: CommentAction) => {
-    if (!user || !editorViewRef.current) return;
-
-    doc.transact(() => {
-      switch (action.type) {
-        case 'create': {
-          const { from, to } = action.payload.selection;
-          const ytext = doc.getText('codemirror');
-          const anchorStart = JSON.stringify(Y.createRelativePositionFromTypeIndex(ytext, from));
-          const anchorEnd = JSON.stringify(Y.createRelativePositionFromTypeIndex(ytext, to));
-
-          const newComment: Omit<CommentData, 'replies'> = {
-            _id: nanoid(),
-            author: { _id: user.id, name: user.firstName || user.emailAddresses[0].emailAddress, avatar: user.imageUrl },
-            content: action.payload.content,
-            createdAt: new Date().toISOString(),
-            isResolved: false,
-            selectedText: action.payload.selectedText,
-            anchorStart,
-            anchorEnd,
-          };
-          ycomments.push([new Y.Map(Object.entries(newComment))]);
-          setIsCommentSidebarOpen(true);
-          dismissCommentButton();
-          break;
-        }
-        case 'reply': {
-           const newReply: Omit<CommentData, 'replies'> = {
-            _id: nanoid(),
-            parent: action.payload.parentId,
-            author: { _id: user.id, name: user.firstName || user.emailAddresses[0].emailAddress, avatar: user.imageUrl },
-            content: action.payload.content,
-            createdAt: new Date().toISOString(),
-            isResolved: false,
-            anchorStart: '',
-            anchorEnd: '',
-          };
-          ycomments.push([new Y.Map(Object.entries(newReply))]);
-          break;
-        }
-        case 'edit': {
-          const commentIndex = ycomments.toArray().findIndex(c => c.get('_id') === action.payload.commentId);
-          if (commentIndex > -1) {
-            const ycomment = ycomments.get(commentIndex);
-            ycomment.set('content', action.payload.content);
-            ycomment.set('isEdited', true);
-            ycomment.set('editedAt', new Date().toISOString());
-          }
-          break;
-        }
-        case 'delete': {
-          const idsToDelete = new Set([action.payload.commentId]);
-          let changed = true;
-          while(changed) {
-            changed = false;
-            ycomments.toArray().forEach(c => {
-              const parentId = c.get('parent');
-              if(parentId && idsToDelete.has(parentId) && !idsToDelete.has(c.get('_id'))) {
-                idsToDelete.add(c.get('_id'));
-                changed = true;
-              }
-            });
-          }
-
-          const toDeleteIndices = ycomments.toArray().map((c, i) => idsToDelete.has(c.get('_id')) ? i : -1).filter(i => i !== -1).reverse();
-          toDeleteIndices.forEach(index => ycomments.delete(index, 1));
-          break;
-        }
-        case 'resolve': {
-          const commentIndex = ycomments.toArray().findIndex(c => c.get('_id') === action.payload.commentId);
-          if (commentIndex > -1) {
-            ycomments.get(commentIndex).set('isResolved', action.payload.isResolved);
-          }
-          break;
-        }
-      }
-    });
-  }, [doc, ycomments, user, dismissCommentButton]);
 
   const scrollSyncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -759,87 +669,30 @@ const md = new MarkdownIt({
           darkMode ? oneDark : [],
           yCollab(ytext, provider.awareness, { undoManager: new Y.UndoManager(ytext) }),
           updateListener,
-          commentDecorationField,
-          EditorView.domEventHandlers({
-            mousedown: (event, view) => {
-                const target = event.target as HTMLElement;
-                const highlight = target.closest('.cm-comment-highlight');
-    
-                if (highlight) {
-                    const commentId = highlight.getAttribute('data-comment-id');
-                    if (commentId) {
-                        event.preventDefault();
-                        setIsCommentSidebarOpen(true);
-                        handleSetActiveComment(commentId);
-                        return true;
-                    }
+          activeHighlightField,
+          EditorView.updateListener.of((update) => {
+            if (update.selectionSet) {
+              const selection = update.state.selection.main;
+              if (!selection.empty) {
+                const text = update.state.sliceDoc(selection.from, selection.to).trim();
+                if (text.length > 2) {
+                  const domRect = editorViewRef.current?.coordsAtPos(selection.to);
+                  const editorRect = editorRef.current?.getBoundingClientRect();
+                  if (domRect && editorRect) {
+                    showCommentButton(text, { x: domRect.right + 5, y: domRect.top }, { from: selection.from, to: selection.to });
+                  }
+                } else {
+                  dismissCommentButton();
                 }
-                return false;
+              } else {
+                dismissCommentButton();
+              }
             }
-        }),
+          }),
           EditorView.theme({
-            "&": {
-              backgroundColor: darkMode ? "#1a202c" : "white",
-              color: darkMode ? "#e2e8f0" : "#1a202c",
-              fontSize: "14px",
-            },
-            ".cm-content": {
-              caretColor: darkMode ? "#60a5fa" : "#2563eb",
-              padding: "10px",
-              minHeight: "200px",
-              whiteSpace: "pre-wrap",
-              wordWrap: "break-word",
-              overflowWrap: "break-word",
-            },
-            ".cm-line": {
-              whiteSpace: "pre-wrap",
-              wordWrap: "break-word",
-              overflowWrap: "break-word",
-            },
-            ".cm-focused": {
-              outline: "none",
-            },
-            ".cm-cursor, .cm-dropCursor": {
-              borderLeft: `2px solid ${darkMode ? "#60a5fa" : "#2563eb"} !important`,
-              marginLeft: "-1px !important",
-              height: "1.2em !important",
-              animation: "cm-blink 1.2s infinite !important",
-            },
-            ".cm-focused .cm-cursor": {
-              borderLeft: `2px solid ${darkMode ? "#60a5fa" : "#2563eb"} !important`,
-              display: "block !important",
-            },
-            ".cm-gutters": {
-              backgroundColor: darkMode ? "#2d3748" : "#f7fafc",
-              color: darkMode ? "#a0aec0" : "#718096",
-              borderRight: darkMode ? "1px solid #4a5568" : "1px solid #e2e8f0",
-            },
-            ".cm-ySelectionInfo": {
-              position: "absolute !important", top: "-2.2em !important", left: "-2px !important",
-              fontSize: "11px !important", fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important",
-              fontStyle: "normal !important", fontWeight: "500 !important", lineHeight: "1.3 !important",
-              padding: "4px 8px !important", color: "white !important", whiteSpace: "nowrap !important",
-              borderRadius: "6px !important", zIndex: "1000 !important",
-              boxShadow: "0 2px 8px rgba(0,0,0,0.25) !important", border: "1px solid rgba(255,255,255,0.2) !important",
-              backdropFilter: "blur(4px) !important", pointerEvents: "none !important",
-              opacity: "1 !important", transform: "translateX(-50%) !important",
-              display: "block !important", visibility: "visible !important",
-            },
-            ".cm-yCursor": {
-              position: "relative !important", borderLeft: "2px solid !important",
-              marginLeft: "-1px !important", marginRight: "-1px !important",
-              boxSizing: "border-box !important", zIndex: "100 !important",
-              height: "1.2em !important", pointerEvents: "none !important",
-              animation: "y-cursor-blink 1.2s ease-in-out infinite !important",
-              display: "block !important", visibility: "visible !important",
-            },
-            ".cm-ySelection": {
-              borderRadius: "2px !important", opacity: "0.3 !important",
-              pointerEvents: "none !important", display: "block !important",
-              visibility: "visible !important",
-            },
-            "@keyframes y-cursor-blink": { "0%, 50%": { opacity: "1" }, "51%, 100%": { opacity: "0.3" }, },
-            "@keyframes cm-blink": { "0%": { opacity: "1" }, "50%": { opacity: "0" }, "100%": { opacity: "1" }, },
+            "&": { backgroundColor: darkMode ? "#1a202c" : "white", color: darkMode ? "#e2e8f0" : "#1a202c" },
+            ".cm-content": { caretColor: darkMode ? "#60a5fa" : "#2563eb" },
+            ".cm-gutters": { backgroundColor: darkMode ? "#2d3748" : "#f7fafc", color: darkMode ? "#a0aec0" : "#718096" },
           })
         ]
       });

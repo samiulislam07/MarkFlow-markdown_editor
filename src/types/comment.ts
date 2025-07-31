@@ -16,10 +16,18 @@ export interface CommentData {
   createdAt: string;
   isResolved: boolean;
   parent?: string;
-  selectedText?: string; // The text that was highlighted
+  selectedText?: string;
   replies?: CommentData[];
   isEdited?: boolean;
   editedAt?: string;
+  
+  // --- START: ADDED FIELD ---
+  // This now matches the structure in your database schema.
+  position?: {
+    from: number;
+    to: number;
+  };
+  // --- END: ADDED FIELD ---
 
   // These fields might exist from previous versions, keeping them for compatibility.
   anchorStart?: string;
