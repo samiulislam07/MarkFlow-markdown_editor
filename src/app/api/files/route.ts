@@ -7,40 +7,34 @@ import User from '@/lib/mongodb/models/User';
 import Workspace, { ICollaborator } from '@/lib/mongodb/models/Workspace';
 import supabase from '@/lib/supabase'
 
-// ADDED: This line prevents Next.js from caching the GET response
 export const dynamic = 'force-dynamic';
 
-// This config is important to prevent Next.js from trying to parse the body as JSON
 export const config = {
   api: {
     bodyParser: false,
   },
 };
 
-// GET - Fetch files for a workspace/folder
+// GET function remains unchanged
 export async function GET(request: NextRequest) {
   try {
     const { userId } = await auth();
     if (!userId) {
-      console.log('Unauthorized access attempt');
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     await connectToDatabase();
-    console.log('Connected to database');
 
     const { searchParams } = new URL(request.url);
     const workspaceId = searchParams.get('workspaceId');
     const folderId = searchParams.get('folderId');
 
     if (!workspaceId) {
-      console.log('Missing workspaceId');
       return NextResponse.json({ error: 'Workspace ID is required' }, { status: 400 });
     }
 
     const user = await User.findOne({ clerkId: userId });
     if (!user) {
-      console.log('User not found in database');
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
@@ -57,10 +51,11 @@ export async function GET(request: NextRequest) {
     }
 
     const query: any = { workspace: workspaceId, isArchived: false };
-    if (folderId) {
+    
+    if (folderId && folderId !== 'null') {
       query.folder = folderId;
     } else {
-      query.folder = null; // Root files
+      query.folder = null;
     }
 
     const files = await File.find(query)
@@ -90,7 +85,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
-    // Use the built-in request.formData() to handle multipart data
     const formData = await request.formData();
     const file = formData.get('file') as File | null;
     const workspaceId = formData.get('workspaceId') as string | null;
@@ -105,7 +99,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Workspace not found' }, { status: 404 });
     }
 
-    // Check for write access
     const hasWriteAccess = workspace.owner.toString() === user._id.toString() ||
       workspace.collaborators.some((collab: ICollaborator) => 
         collab.user.toString() === user._id.toString() && collab.role === 'editor'
@@ -115,19 +108,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'You do not have permission to upload files to this workspace.' }, { status: 403 });
     }
 
-    // Construct the file path for Supabase storage (e.g., 'uploads/filename')
     const fileBlob = file as unknown as Blob;
     const arrayBuffer = await fileBlob.arrayBuffer();
     const fileBuffer = Buffer.from(arrayBuffer);
+    
+    // --- START: MODIFIED FILE PATH LOGIC ---
+    // Create a unique file path to prevent name collisions
+    const uniqueFileName = `${user._id}-${Date.now()}-${file.name.replace(/\s+/g, '_')}`;
+    const filePath = `uploads/${uniqueFileName}`;
+    // --- END: MODIFIED FILE PATH LOGIC ---
 
-    const filePath = `uploads/${file.name}`;
-
-    // ✅ Upload to Supabase
     const { error: uploadError } = await supabase.storage
       .from('uploads')
       .upload(filePath, fileBuffer, {
         contentType: file.type,
-        upsert: false,
+        upsert: false, // Set back to false, as filenames are now unique
       });
 
     if (uploadError) {
@@ -135,16 +130,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to upload file to Supabase' }, { status: 500 });
     }
 
-    // ✅ Get public URL
     const { data: publicData } = supabase.storage.from('uploads').getPublicUrl(filePath);
-    const publicUrl = publicData?.publicUrl;
+    const storageUrl = publicData?.publicUrl;
 
-    const storageUrl = publicUrl;
-
-    console.log('File uploaded to:', storageUrl);
     const newFile = new (require('@/lib/mongodb/models/File').default)({
-      fileName: file.name,
+      fileName: file.name, // Keep the original display name
       storageUrl,
+      filePath, // Save the unique path
       fileType: file.type,
       fileSize: file.size,
       workspace: workspaceId,
