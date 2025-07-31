@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { ClerkProvider } from "@clerk/nextjs";
-import { Toaster } from "sonner"; // ✨ 1. Import Toaster
+import { Toaster } from "sonner";
 
 const geist = Geist({
   variable: "--font-geist-sans",
@@ -29,6 +29,15 @@ export default function RootLayout({
     <ClerkProvider>
       <html lang="en">
         <head>
+          {/* --- START: ADDED KATEX STYLESHEET --- */}
+          <link
+            rel="stylesheet"
+            href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css"
+            xintegrity="sha384-n8MVd4RsNIU0KOVEMMhpZBvr3oOlbDP5gPSzrDtp9rgpBVRKYPj861VIIg54SfP4"
+            crossOrigin="anonymous"
+          />
+          {/* --- END: ADDED KATEX STYLESHEET --- */}
+
           {/* Computer Modern Font for LaTeX-like appearance */}
           <link rel="preconnect" href="https://fonts.googleapis.com" />
           <link

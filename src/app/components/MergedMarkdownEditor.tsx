@@ -38,6 +38,7 @@ import remarkParse from 'remark-parse';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import remarkRehype from 'remark-rehype';
+import rehypeKatex from 'rehype-katex'; // <-- Make sure this import is here
 import rehypeSanitize from 'rehype-sanitize';
 import rehypeStringify from 'rehype-stringify';
 import rehypeHighlight from 'rehype-highlight';
@@ -217,44 +218,25 @@ const MergedMarkdownEditor: React.FC<MarkdownEditorProps> = ({
 
   const scrollSyncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  const mathJaxConfig = {
-    loader: { load: ["[tex]/ams", "[tex]/noerrors"] },
-    tex: {
-      inlineMath: [["$", "$"]],
-      displayMath: [["$$", "$$"]],
-      packages: { "[+]": ["ams", "noerrors"] },
-      processEscapes: true,
-      processEnvironments: true,
-    },
-    options: {
-      skipHtmlTags: ["script", "noscript", "style", "textarea", "pre"],
-      enableMenu: false,
-    },
-  };
-
   const toggleDarkMode = () => {
     setDarkMode(!darkMode);
     setShowThemePicker(false);
   };
 
+  // --- START: UPDATED MARKDOWN PROCESSING PIPELINE ---
   const processMarkdown = useCallback(async (markdown: string): Promise<string> => {
     try {
       const file = await unified()
         .use(remarkParse)
         .use(remarkGfm)
-        .use(remarkMath)
+        .use(remarkMath) // Parses math syntax
         .use(remarkRehype)
+        .use(rehypeKatex) // Renders math syntax into HTML with KaTeX
         .use(rehypeHighlight)
         .use(rehypeSanitize, {
-          tagNames: [
-            'h1', 'h2', 'h3', 'p', 'a', 'ul', 'ol', 'li',
-            'blockquote', 'code', 'pre', 'hr', 'strong',
-            'em', 'div', 'span', 'del', 'img', 'table',
-            'thead', 'tbody', 'tr', 'th', 'td', 'input',
-            'sup', 'br'
-          ],
+          // KaTeX adds its own classes, so we need to allow them
           attributes: {
-            '*': ['className'],
+            '*': ['className', 'style', 'aria-hidden'],
             'a': ['href', 'target', 'rel', 'id'],
             'img': ['src', 'alt', 'title'],
             'input': ['type', 'checked', 'disabled'],
@@ -271,6 +253,7 @@ const MergedMarkdownEditor: React.FC<MarkdownEditorProps> = ({
       return `<div class="markdown-error">Error rendering markdown</div>`;
     }
   }, []);
+  // --- END: UPDATED MARKDOWN PROCESSING PIPELINE ---
 
   const processContent = useCallback(async (content: string) => {
     setIsProcessing(true);
@@ -849,540 +832,527 @@ const md = new MarkdownIt({
   );
 
   return (
-    <MathJaxContext config={mathJaxConfig}>
+    <div
+      className={`markflow-editor flex flex-col h-screen max-w-full overflow-hidden ${
+        darkMode ? "bg-gray-900 text-gray-100" : "bg-white text-gray-800"
+      } ${isFullScreen ? "fixed inset-0 z-50" : "relative"}`}
+    >
       <div
-        className={`markflow-editor flex flex-col h-screen max-w-full overflow-hidden ${
-          darkMode ? "bg-gray-900 text-gray-100" : "bg-white text-gray-800"
-        } ${isFullScreen ? "fixed inset-0 z-50" : "relative"}`}
+        className={`${
+          darkMode
+            ? "bg-gray-800 border-gray-700"
+            : "bg-white border-gray-200"
+        } border-b px-4 py-3`}
       >
-        <div
-          className={`${
-            darkMode
-              ? "bg-gray-800 border-gray-700"
-              : "bg-white border-gray-200"
-          } border-b px-4 py-3`}
-        >
-          {/* Header content remains the same */}
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center space-x-3">
-              {getConnectionStatusDisplay()}
-              {connectedUsers.size > 0 && (
-                <div className="flex items-center space-x-2">
-                  <span className="text-xs text-gray-500">Active Users:</span>
-                  <div className="flex -space-x-1">
-                    {Array.from(connectedUsers.entries())
-                      .slice(0, 5)
-                      .map(([userId, user]) => (
-                        <div key={userId} className="relative">
-                          {generateUserAvatar(user, 6)}
-                        </div>
-                      ))}
-                    {connectedUsers.size > 5 && (
-                      <div className="w-6 h-6 rounded-full bg-gray-400 flex items-center justify-center text-white text-xs font-medium">
-                        +{connectedUsers.size - 5}
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center space-x-3">
+            {getConnectionStatusDisplay()}
+            {connectedUsers.size > 0 && (
+              <div className="flex items-center space-x-2">
+                <span className="text-xs text-gray-500">Active Users:</span>
+                <div className="flex -space-x-1">
+                  {Array.from(connectedUsers.entries())
+                    .slice(0, 5)
+                    .map(([userId, user]) => (
+                      <div key={userId} className="relative">
+                        {generateUserAvatar(user, 6)}
                       </div>
-                    )}
+                    ))}
+                  {connectedUsers.size > 5 && (
+                    <div className="w-6 h-6 rounded-full bg-gray-400 flex items-center justify-center text-white text-xs font-medium">
+                      +{connectedUsers.size - 5}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+          <div className="text-xs text-gray-500">
+            Real-time collaborative editing
+          </div>
+        </div>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-4 flex-1">
+            <button
+              onClick={() => router.push("/dashboard")}
+              className={`p-2 rounded transition-colors ${
+                darkMode
+                  ? "text-gray-300 hover:text-white hover:bg-gray-700"
+                  : "text-gray-600 hover:text-gray-800 hover:bg-gray-100"
+              }`}
+              title="Back to Dashboard"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+            <input
+              ref={titleRef}
+              type="text"
+              value={title}
+              onChange={(e) => {
+                const newTitle = e.target.value;
+                setTitle(newTitle);
+                doc.transact(() => {
+                  if (ytitle.toString() !== newTitle) {
+                    ytitle.delete(0, ytitle.length);
+                    ytitle.insert(0, newTitle);
+                  }
+                });
+              }}
+              className={`text-xl font-semibold border-none outline-none rounded px-2 py-1 flex-1 max-w-md ${
+                darkMode
+                  ? "bg-gray-800 text-white focus:bg-gray-700"
+                  : "bg-transparent text-gray-800 focus:bg-gray-50"
+              }`}
+              placeholder="Document title..."
+            />
+            <div
+              className={`flex items-center space-x-2 text-sm ${
+                darkMode ? "text-gray-400" : "text-gray-500"
+              }`}
+            >
+              {getSaveStatusIcon()}
+              <span>{getSaveStatusText()}</span>
+            </div>
+          </div>
+          <div className="flex items-center space-x-2">
+            <div className="relative" ref={themePickerRef}>
+              <button
+                onClick={() => setShowThemePicker(!showThemePicker)}
+                className={`flex items-center px-3 py-2 text-sm rounded-lg transition-colors ${
+                  darkMode
+                    ? "bg-gray-700 text-gray-300 hover:bg-gray-600"
+                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                }`}
+              >
+                <Palette className="w-4 h-4 mr-2" />
+                Theme
+              </button>
+              {showThemePicker && (
+                <div
+                  className={`absolute right-0 mt-2 w-48 rounded-md shadow-lg z-10 ${
+                    darkMode
+                      ? "bg-gray-800 border border-gray-700"
+                      : "bg-white border border-gray-200"
+                  }`}
+                >
+                  <div className="p-2">
+                    <button
+                      onClick={toggleDarkMode}
+                      className={`flex items-center w-full px-3 py-2 text-sm rounded ${
+                        darkMode
+                          ? "hover:bg-gray-700 text-gray-300"
+                          : "hover:bg-gray-100 text-gray-700"
+                      }`}
+                    >
+                      {darkMode ? (
+                        <>
+                          <Sun className="w-4 h-4 mr-2" />
+                          Light Mode
+                        </>
+                      ) : (
+                        <>
+                          <Moon className="w-4 h-4 mr-2" />
+                          Dark Mode
+                        </>
+                      )}
+                    </button>
                   </div>
                 </div>
               )}
             </div>
-            <div className="text-xs text-gray-500">
-              Real-time collaborative editing
-            </div>
-          </div>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4 flex-1">
-              <button
-                onClick={() => router.push("/dashboard")}
-                className={`p-2 rounded transition-colors ${
-                  darkMode
-                    ? "text-gray-300 hover:text-white hover:bg-gray-700"
-                    : "text-gray-600 hover:text-gray-800 hover:bg-gray-100"
-                }`}
-                title="Back to Dashboard"
-              >
-                <ArrowLeft className="w-5 h-5" />
-              </button>
-              <input
-                ref={titleRef}
-                type="text"
-                value={title}
-                onChange={(e) => {
-                  const newTitle = e.target.value;
-                  setTitle(newTitle);
-                  doc.transact(() => {
-                    if (ytitle.toString() !== newTitle) {
-                      ytitle.delete(0, ytitle.length);
-                      ytitle.insert(0, newTitle);
-                    }
-                  });
-                }}
-                className={`text-xl font-semibold border-none outline-none rounded px-2 py-1 flex-1 max-w-md ${
-                  darkMode
-                    ? "bg-gray-800 text-white focus:bg-gray-700"
-                    : "bg-transparent text-gray-800 focus:bg-gray-50"
-                }`}
-                placeholder="Document title..."
-              />
-              <div
-                className={`flex items-center space-x-2 text-sm ${
-                  darkMode ? "text-gray-400" : "text-gray-500"
-                }`}
-              >
-                {getSaveStatusIcon()}
-                <span>{getSaveStatusText()}</span>
-              </div>
-            </div>
-            <div className="flex items-center space-x-2">
-              <div className="relative" ref={themePickerRef}>
-                <button
-                  onClick={() => setShowThemePicker(!showThemePicker)}
-                  className={`flex items-center px-3 py-2 text-sm rounded-lg transition-colors ${
-                    darkMode
-                      ? "bg-gray-700 text-gray-300 hover:bg-gray-600"
-                      : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                  }`}
-                >
-                  <Palette className="w-4 h-4 mr-2" />
-                  Theme
-                </button>
-                {showThemePicker && (
-                  <div
-                    className={`absolute right-0 mt-2 w-48 rounded-md shadow-lg z-10 ${
-                      darkMode
-                        ? "bg-gray-800 border border-gray-700"
-                        : "bg-white border border-gray-200"
-                    }`}
-                  >
-                    <div className="p-2">
-                      <button
-                        onClick={toggleDarkMode}
-                        className={`flex items-center w-full px-3 py-2 text-sm rounded ${
-                          darkMode
-                            ? "hover:bg-gray-700 text-gray-300"
-                            : "hover:bg-gray-100 text-gray-700"
-                        }`}
-                      >
-                        {darkMode ? (
-                          <>
-                            <Sun className="w-4 h-4 mr-2" />
-                            Light Mode
-                          </>
-                        ) : (
-                          <>
-                            <Moon className="w-4 h-4 mr-2" />
-                            Dark Mode
-                          </>
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-              
-              <button
-                onClick={() => setIsCommentSidebarOpen(!isCommentSidebarOpen)}
-                className={`flex items-center px-3 py-2 text-sm rounded-lg transition-colors ${
-                  isCommentSidebarOpen
-                    ? darkMode 
-                      ? 'bg-blue-900 text-blue-200' 
-                      : 'bg-blue-100 text-blue-700'
-                    : darkMode 
-                      ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' 
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-                title="Toggle Comments"
-              >
-                <MessageSquare className="w-4 h-4 mr-2" />
-                Comments
-                {comments.length > 0 && (
-                  <span className={`ml-2 px-2 py-0.5 text-xs rounded-full ${
-                    darkMode ? 'bg-gray-600 text-gray-300' : 'bg-gray-200 text-gray-600'
-                  }`}>
-                    {comments.length}
-                  </span>
-                )}
-              </button>
-              
-              <button
-                onClick={() => saveDocument()}
-                className={`flex items-center px-3 py-2 text-sm rounded-lg transition-colors ${
-                  darkMode
-                    ? "bg-blue-900 text-blue-200 hover:bg-blue-800"
-                    : "bg-blue-100 text-blue-700 hover:bg-blue-200"
-                }`}
-                disabled={saveStatus === "saving"}
-              >
-                <Save className="w-4 h-4 mr-2" />
-                Save
-              </button>
-              <button
-                onClick={() => setShowPreview(!showPreview)}
-                className={`flex items-center px-3 py-2 text-sm rounded-lg transition-colors ${
-                  darkMode
-                    ? "bg-gray-700 text-gray-300 hover:bg-gray-600"
-                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                }`}
-              >
-                {showPreview ? (
-                  <Edit3 className="w-4 h-4 mr-2" />
-                ) : (
-                  <Eye className="w-4 h-4 mr-2" />
-                )}
-                {showPreview ? "Edit Only" : "Preview"}
-              </button>
-              {showPreview && (
-                <button
-                  onClick={compileMarkdown}
-                  disabled={isCompiling}
-                  className={`flex items-center px-3 py-2 text-sm rounded-lg transition-colors ${
-                    isCompiling ? "opacity-50 cursor-not-allowed" : ""
-                  } ${
-                    darkMode
-                      ? "bg-purple-900 text-purple-200 hover:bg-purple-800"
-                      : "bg-purple-100 text-purple-700 hover:bg-purple-200"
-                  }`}
-                  title="Compile markdown to preview"
-                >
-                  {isCompiling ? (
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  ) : (
-                    <Play className="w-4 h-4 mr-2" />
-                  )}
-                  {isCompiling ? "Compiling..." : "Compile"}
-                </button>
+            
+            <button
+              onClick={() => setIsCommentSidebarOpen(!isCommentSidebarOpen)}
+              className={`flex items-center px-3 py-2 text-sm rounded-lg transition-colors ${
+                isCommentSidebarOpen
+                  ? darkMode 
+                    ? 'bg-blue-900 text-blue-200' 
+                    : 'bg-blue-100 text-blue-700'
+                  : darkMode 
+                    ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' 
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
+              title="Toggle Comments"
+            >
+              <MessageSquare className="w-4 h-4 mr-2" />
+              Comments
+              {comments.length > 0 && (
+                <span className={`ml-2 px-2 py-0.5 text-xs rounded-full ${
+                  darkMode ? 'bg-gray-600 text-gray-300' : 'bg-gray-200 text-gray-600'
+                }`}>
+                  {comments.length}
+                </span>
               )}
+            </button>
+            
+            <button
+              onClick={() => saveDocument()}
+              className={`flex items-center px-3 py-2 text-sm rounded-lg transition-colors ${
+                darkMode
+                  ? "bg-blue-900 text-blue-200 hover:bg-blue-800"
+                  : "bg-blue-100 text-blue-700 hover:bg-blue-200"
+              }`}
+              disabled={saveStatus === "saving"}
+            >
+              <Save className="w-4 h-4 mr-2" />
+              Save
+            </button>
+            <button
+              onClick={() => setShowPreview(!showPreview)}
+              className={`flex items-center px-3 py-2 text-sm rounded-lg transition-colors ${
+                darkMode
+                  ? "bg-gray-700 text-gray-300 hover:bg-gray-600"
+                  : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+              }`}
+            >
+              {showPreview ? (
+                <Edit3 className="w-4 h-4 mr-2" />
+              ) : (
+                <Eye className="w-4 h-4 mr-2" />
+              )}
+              {showPreview ? "Edit Only" : "Preview"}
+            </button>
+            {showPreview && (
               <button
-                onClick={toggleAutoCompile}
+                onClick={compileMarkdown}
+                disabled={isCompiling}
                 className={`flex items-center px-3 py-2 text-sm rounded-lg transition-colors ${
-                  autoCompile
-                    ? darkMode
-                      ? "bg-green-900 text-green-200"
-                      : "bg-green-100 text-green-700"
-                    : darkMode
-                      ? "bg-gray-700 text-gray-300 hover:bg-gray-600"
-                      : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                }`}
-                title={
-                  autoCompile ? "Disable auto-compile" : "Enable auto-compile"
-                }
-              >
-                <div
-                  className={`w-2 h-2 rounded-full mr-2 ${
-                    autoCompile ? "bg-green-500" : "bg-gray-400"
-                  }`}
-                ></div>
-                Auto
-              </button>
-              <button
-                onClick={handleCopy}
-                className={`flex items-center px-3 py-2 text-sm rounded-lg transition-colors ${
+                  isCompiling ? "opacity-50 cursor-not-allowed" : ""
+                } ${
                   darkMode
-                    ? "bg-gray-700 text-gray-300 hover:bg-gray-600"
-                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                    ? "bg-purple-900 text-purple-200 hover:bg-purple-800"
+                    : "bg-purple-100 text-purple-700 hover:bg-purple-200"
                 }`}
+                title="Compile markdown to preview"
               >
-                <Copy className="w-4 h-4 mr-2" />
-                Copy
-              </button>
-              <button
-                onClick={handleDownload}
-                className={`flex items-center px-3 py-2 text-sm rounded-lg transition-colors ${
-                  darkMode
-                    ? "bg-green-900 text-green-200 hover:bg-green-800"
-                    : "bg-green-100 text-green-700 hover:bg-green-200"
-                }`}
-              >
-                <Download className="w-4 h-4 mr-2" />
-                Export
-              </button>
-              <button
-                onClick={toggleFullScreen}
-                className={`flex items-center px-3 py-2 text-sm rounded-lg transition-colors ${
-                  darkMode
-                    ? "bg-gray-700 text-gray-300 hover:bg-gray-600"
-                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                }`}
-              >
-                {isFullScreen ? (
-                  <Minimize className="w-4 h-4 mr-2" />
+                {isCompiling ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                 ) : (
-                  <Maximize className="w-4 h-4 mr-2" />
+                  <Play className="w-4 h-4 mr-2" />
                 )}
-                {isFullScreen ? "Exit Fullscreen" : "Fullscreen"}
+                {isCompiling ? "Compiling..." : "Compile"}
               </button>
-            </div>
+            )}
+            <button
+              onClick={toggleAutoCompile}
+              className={`flex items-center px-3 py-2 text-sm rounded-lg transition-colors ${
+                autoCompile
+                  ? darkMode
+                    ? "bg-green-900 text-green-200"
+                    : "bg-green-100 text-green-700"
+                  : darkMode
+                    ? "bg-gray-700 text-gray-300 hover:bg-gray-600"
+                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+              }`}
+              title={
+                autoCompile ? "Disable auto-compile" : "Enable auto-compile"
+              }
+            >
+              <div
+                className={`w-2 h-2 rounded-full mr-2 ${
+                  autoCompile ? "bg-green-500" : "bg-gray-400"
+                }`}
+              ></div>
+              Auto
+            </button>
+            <button
+              onClick={handleCopy}
+              className={`flex items-center px-3 py-2 text-sm rounded-lg transition-colors ${
+                darkMode
+                  ? "bg-gray-700 text-gray-300 hover:bg-gray-600"
+                  : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+              }`}
+            >
+              <Copy className="w-4 h-4 mr-2" />
+              Copy
+            </button>
+            <button
+              onClick={handleDownload}
+              className={`flex items-center px-3 py-2 text-sm rounded-lg transition-colors ${
+                darkMode
+                  ? "bg-green-900 text-green-200 hover:bg-green-800"
+                  : "bg-green-100 text-green-700 hover:bg-green-200"
+              }`}
+            >
+              <Download className="w-4 h-4 mr-2" />
+              Export
+            </button>
+            <button
+              onClick={toggleFullScreen}
+              className={`flex items-center px-3 py-2 text-sm rounded-lg transition-colors ${
+                darkMode
+                  ? "bg-gray-700 text-gray-300 hover:bg-gray-600"
+                  : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+              }`}
+            >
+              {isFullScreen ? (
+                <Minimize className="w-4 h-4 mr-2" />
+              ) : (
+                <Maximize className="w-4 h-4 mr-2" />
+              )}
+              {isFullScreen ? "Exit Fullscreen" : "Fullscreen"}
+            </button>
           </div>
         </div>
+      </div>
+      <div
+        className={`${
+          darkMode
+            ? "bg-gray-800 border-gray-700"
+            : "bg-white border-gray-200"
+        } border-b px-4 py-2`}
+      >
+        <div className="flex items-center space-x-1">
+          <EditorToolbarButton
+            onClick={() => insertTextAtCursor("**", 2)}
+            icon={Bold}
+            label="Bold"
+          />
+          <EditorToolbarButton
+            onClick={() => insertTextAtCursor("*", 1)}
+            icon={Italic}
+            label="Italic"
+          />
+          <EditorToolbarButton
+            onClick={() => insertTextAtCursor("`", 1)}
+            icon={Code}
+            label="Code"
+          />
+          <EditorToolbarButton
+            onClick={() => insertTextAtCursor("[text](url)", 1)}
+            icon={Link}
+            label="Link"
+          />
+          <EditorToolbarButton
+            onClick={() => insertTextAtCursor("- ", 2)}
+            icon={List}
+            label="Unordered List"
+          />
+          <EditorToolbarButton
+            onClick={() => insertTextAtCursor("1. ", 3)}
+            icon={ListOrdered}
+            label="Ordered List"
+          />
+          <EditorToolbarButton
+            onClick={() => insertTextAtCursor("> ", 2)}
+            icon={Quote}
+            label="Blockquote"
+          />
+          <EditorToolbarButton
+            onClick={() => insertTextAtCursor("---\n", 4)}
+            icon={Minus}
+            label="Horizontal Rule"
+          />
+          <EditorToolbarButton
+            onClick={() => insertTextAtCursor("$$\n\n$$", 3)}
+            icon={MathIcon}
+            label="Math Block"
+          />
+          <EditorToolbarButton
+            onClick={() => insertTextAtCursor("| Header 1 | Header 2 |\n|----------|----------|\n| Cell 1   | Cell 2   |", 2)}
+            icon={Table}
+            label="Table"
+          />
+          <EditorToolbarButton
+            onClick={() => insertTextAtCursor("[^1]", 3)}
+            icon={Hash}
+            label="Footnote"
+          />
+          <EditorToolbarButton
+            onClick={() => insertTextAtCursor("~~", 2)}
+            icon={Strikethrough}
+            label="Strikethrough"
+          />
+          <EditorToolbarButton
+            onClick={() => insertTextAtCursor("~", 1)}
+            icon={Subscript}
+            label="Subscript"
+          />
+          <EditorToolbarButton
+            onClick={() => insertTextAtCursor("^", 1)}
+            icon={Superscript}
+            label="Superscript"
+          />
+        </div>
+      </div>
+
+      <div className={`flex flex-1 overflow-hidden transition-all duration-300 ${
+        isDocumentSidebarOpen ? 'pl-0' : ''
+      } ${
+        isCommentSidebarOpen ? 'pr-0' : ''
+      }`}>
         <div
-          className={`${
-            darkMode
-              ? "bg-gray-800 border-gray-700"
-              : "bg-white border-gray-200"
-          } border-b px-4 py-2`}
+          className={`transition-all duration-300 ${
+            showPreview ? "w-1/2" : "w-full"
+          }`}
         >
-          {/* Toolbar content remains the same */}
-          <div className="flex items-center space-x-1">
-            <EditorToolbarButton
-              onClick={() => insertTextAtCursor("**", 2)}
-              icon={Bold}
-              label="Bold"
-            />
-            <EditorToolbarButton
-              onClick={() => insertTextAtCursor("*", 1)}
-              icon={Italic}
-              label="Italic"
-            />
-            <EditorToolbarButton
-              onClick={() => insertTextAtCursor("`", 1)}
-              icon={Code}
-              label="Code"
-            />
-            <EditorToolbarButton
-              onClick={() => insertTextAtCursor("[text](url)", 1)}
-              icon={Link}
-              label="Link"
-            />
-            <EditorToolbarButton
-              onClick={() => insertTextAtCursor("- ", 2)}
-              icon={List}
-              label="Unordered List"
-            />
-            <EditorToolbarButton
-              onClick={() => insertTextAtCursor("1. ", 3)}
-              icon={ListOrdered}
-              label="Ordered List"
-            />
-            <EditorToolbarButton
-              onClick={() => insertTextAtCursor("> ", 2)}
-              icon={Quote}
-              label="Blockquote"
-            />
-            <EditorToolbarButton
-              onClick={() => insertTextAtCursor("---\n", 4)}
-              icon={Minus}
-              label="Horizontal Rule"
-            />
-            <EditorToolbarButton
-              onClick={() => insertTextAtCursor("$$\n\n$$", 3)}
-              icon={MathIcon}
-              label="Math Block"
-            />
-            <EditorToolbarButton
-              onClick={() => insertTextAtCursor("| Header 1 | Header 2 |\n|----------|----------|\n| Cell 1   | Cell 2   |", 2)}
-              icon={Table}
-              label="Table"
-            />
-            <EditorToolbarButton
-              onClick={() => insertTextAtCursor("[^1]", 3)}
-              icon={Hash}
-              label="Footnote"
-            />
-            <EditorToolbarButton
-              onClick={() => insertTextAtCursor("~~", 2)}
-              icon={Strikethrough}
-              label="Strikethrough"
-            />
-            <EditorToolbarButton
-              onClick={() => insertTextAtCursor("~", 1)}
-              icon={Subscript}
-              label="Subscript"
-            />
-            <EditorToolbarButton
-              onClick={() => insertTextAtCursor("^", 1)}
-              icon={Superscript}
-              label="Superscript"
-            />
-          </div>
+          <div
+            ref={editorRef}
+            className={`h-full w-full font-mono text-sm leading-relaxed overflow-auto markflow-codemirror ${
+              darkMode
+                ? "bg-gray-900 text-gray-100"
+                : "bg-white text-gray-800"
+            }`}
+            style={{
+              WebkitUserSelect: "text",
+              userSelect: "text",
+              cursor: "text",
+              wordWrap: "break-word",
+              overflowWrap: "break-word",
+              whiteSpace: "pre-wrap",
+            }}
+          />
         </div>
 
-        {/* --- MAIN CONTENT WITH SIDEBAR LAYOUT --- */}
-        <div className={`flex flex-1 overflow-hidden transition-all duration-300 ${
-          isDocumentSidebarOpen ? 'pl-0' : ''
-        } ${
-          isCommentSidebarOpen ? 'pr-0' : ''
-        }`}>
-          {/* Editor Pane */}
+        {showPreview && (
           <div
-            className={`transition-all duration-300 ${
-              showPreview ? "w-1/2" : "w-full"
+            className={`markflow-preview w-1/2 h-full flex flex-col border-l transition-all duration-300 ${
+              darkMode
+                ? "bg-gray-800 border-gray-700"
+                : "bg-gray-50 border-gray-200"
             }`}
           >
             <div
-              ref={editorRef}
-              className={`h-full w-full font-mono text-sm leading-relaxed overflow-auto markflow-codemirror ${
+              className={`flex-shrink-0 px-4 py-2 border-b ${
                 darkMode
-                  ? "bg-gray-900 text-gray-100"
-                  : "bg-white text-gray-800"
-              }`}
-              style={{
-                WebkitUserSelect: "text",
-                userSelect: "text",
-                cursor: "text",
-                wordWrap: "break-word",
-                overflowWrap: "break-word",
-                whiteSpace: "pre-wrap",
-              }}
-            />
-          </div>
-
-          {/* Preview Pane */}
-          {showPreview && (
-            <div
-              className={`markflow-preview w-1/2 h-full flex flex-col border-l transition-all duration-300 ${
-                darkMode
-                  ? "bg-gray-800 border-gray-700"
-                  : "bg-gray-50 border-gray-200"
+                  ? "bg-gray-700 border-gray-600 text-gray-200"
+                  : "bg-gray-100 border-gray-200 text-gray-700"
               }`}
             >
-              <div
-                className={`flex-shrink-0 px-4 py-2 border-b ${
-                  darkMode
-                    ? "bg-gray-700 border-gray-600 text-gray-200"
-                    : "bg-gray-100 border-gray-200 text-gray-700"
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">Preview</span>
-                  <div className="flex items-center space-x-2">
-                    <div
-                      className={`w-2 h-2 rounded-full ${
-                        isProcessing
-                          ? "bg-yellow-500"
-                          : processedContent
-                          ? "bg-green-500"
-                          : "bg-gray-400"
-                      }`}
-                    ></div>
-                    <span className="text-xs">
-                      {isProcessing
-                        ? "Processing..."
-                        : processedContent
-                        ? "Up to date"
-                        : "Not compiled"}
-                    </span>
-                    <Eye className="w-4 h-4" />
-                  </div>
-                </div>
-              </div>
-              <div
-                ref={previewRef}
-                className="flex-1 overflow-auto"
-                onScroll={() => {
-                  if (scrollSyncTimeoutRef.current) {
-                    clearTimeout(scrollSyncTimeoutRef.current);
-                  }
-                }}
-              >
-                <div className="flex-1 p-6">
-                  {isProcessing ? (
-                    <div className={`flex flex-col items-center justify-center h-64 ${
-                      darkMode ? "text-gray-400" : "text-gray-500"
-                    }`}>
-                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mb-4"></div>
-                      <p className="text-sm">Processing markdown...</p>
-                    </div>
-                  ) : processedContent ? (
-                    <MathJaxContext config={mathJaxConfig}>
-                      <MathJax>
-                        <div 
-                          className={`prose prose-lg max-w-none ${
-                            darkMode ? "prose-invert" : ""
-                          }`}
-                          style={{
-                            fontSize: "16px",
-                            lineHeight: "1.6",
-                            wordWrap: "break-word",
-                            overflowWrap: "break-word",
-                          }}
-                          dangerouslySetInnerHTML={{
-                            __html: processedContent
-                          }}
-                        />
-                      </MathJax>
-                    </MathJaxContext>
-                  ) : (
-                    <div
-                      className={`flex flex-col items-center justify-center h-64 ${
-                        darkMode ? "text-gray-400" : "text-gray-500"
-                      }`}
-                    >
-                      <Play className="w-12 h-12 mb-4 opacity-50" />
-                      <p className="text-lg font-medium mb-2">
-                        Preview not compiled
-                      </p>
-                      <p className="text-sm text-center">
-                        Click the &quot;Compile&quot; button to render the
-                        markdown preview,
-                        <br />
-                        or enable &quot;Auto&quot; for real-time compilation.
-                      </p>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-        {/* --- FIX ENDS HERE --- */}
-
-        <div
-          className={`border-t px-4 py-2 text-xs transition-colors duration-200 ${
-            darkMode
-              ? "bg-gray-800 border-gray-700 text-gray-400"
-              : "bg-gray-100 border-gray-200 text-gray-500"
-          }`}
-        >
-          {/* Footer content remains the same */}
-          <div className="flex justify-between items-center">
-            <div className="flex items-center space-x-4">
-              <span>Lines: {markdownContent.split("\n").length}</span>
-              <span>Characters: {markdownContent.length}</span>
-              <span>
-                Words:{" "}
-                {
-                  markdownContent.split(/\s+/).filter((word) => word.length > 0)
-                    .length
-                }
-              </span>
-              {showPreview && (
-                <span className="flex items-center">
-                  <Eye className="w-3 h-3 mr-1" />
-                  {autoCompile ? "Auto Preview" : "Manual Preview"}
-                </span>
-              )}
-              {showPreview && (
-                <span
-                  className={`flex items-center text-xs ${
-                    compiledContent === markdownContent
-                      ? "text-green-600 dark:text-green-400"
-                      : "text-yellow-600 dark:text-yellow-400"
-                  }`}
-                >
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium">Preview</span>
+                <div className="flex items-center space-x-2">
                   <div
-                    className={`w-2 h-2 rounded-full mr-1 ${
-                      compiledContent === markdownContent
+                    className={`w-2 h-2 rounded-full ${
+                      isProcessing
+                        ? "bg-yellow-500"
+                        : processedContent
                         ? "bg-green-500"
-                        : "bg-yellow-500"
+                        : "bg-gray-400"
                     }`}
                   ></div>
-                  {compiledContent === markdownContent
-                    ? "Compiled"
-                    : "Needs compile"}
-                </span>
-              )}
+                  <span className="text-xs">
+                    {isProcessing
+                      ? "Processing..."
+                      : processedContent
+                      ? "Up to date"
+                      : "Not compiled"}
+                  </span>
+                  <Eye className="w-4 h-4" />
+                </div>
+              </div>
             </div>
-            <div className="flex items-center space-x-4">
-              <span>LaTeX & Math supported</span>
-              <span>Auto-save enabled</span>
-              {connectionStatus === "connected" && connectedUsers.size > 1 && (
-                <span className="flex items-center">
-                  <div className="w-2 h-2 bg-green-500 rounded-full mr-1"></div>
-                  {connectedUsers.size} collaborator
-                  {connectedUsers.size > 1 ? "s" : ""}
-                </span>
-              )}
+            <div
+              ref={previewRef}
+              className="flex-1 overflow-auto"
+              onScroll={() => {
+                if (scrollSyncTimeoutRef.current) {
+                  clearTimeout(scrollSyncTimeoutRef.current);
+                }
+              }}
+            >
+              <div className="flex-1 p-6">
+                {isProcessing ? (
+                  <div className={`flex flex-col items-center justify-center h-64 ${
+                    darkMode ? "text-gray-400" : "text-gray-500"
+                  }`}>
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mb-4"></div>
+                    <p className="text-sm">Processing markdown...</p>
+                  </div>
+                ) : processedContent ? (
+                  <div 
+                    className={`prose prose-lg max-w-none ${
+                      darkMode ? "prose-invert" : ""
+                    }`}
+                    style={{
+                      fontSize: "16px",
+                      lineHeight: "1.6",
+                      wordWrap: "break-word",
+                      overflowWrap: "break-word",
+                    }}
+                    dangerouslySetInnerHTML={{
+                      __html: processedContent
+                    }}
+                  />
+                ) : (
+                  <div
+                    className={`flex flex-col items-center justify-center h-64 ${
+                      darkMode ? "text-gray-400" : "text-gray-500"
+                    }`}
+                  >
+                    <Play className="w-12 h-12 mb-4 opacity-50" />
+                    <p className="text-lg font-medium mb-2">
+                      Preview not compiled
+                    </p>
+                    <p className="text-sm text-center">
+                      Click the &quot;Compile&quot; button to render the
+                      markdown preview,
+                      <br />
+                      or enable &quot;Auto&quot; for real-time compilation.
+                    </p>
+                  </div>
+                )}
+              </div>
             </div>
+          </div>
+        )}
+      </div>
+
+      <div
+        className={`border-t px-4 py-2 text-xs transition-colors duration-200 ${
+          darkMode
+            ? "bg-gray-800 border-gray-700 text-gray-400"
+            : "bg-gray-100 border-gray-200 text-gray-500"
+        }`}
+      >
+        <div className="flex justify-between items-center">
+          <div className="flex items-center space-x-4">
+            <span>Lines: {markdownContent.split("\n").length}</span>
+            <span>Characters: {markdownContent.length}</span>
+            <span>
+              Words:{" "}
+              {
+                markdownContent.split(/\s+/).filter((word) => word.length > 0)
+                  .length
+              }
+            </span>
+            {showPreview && (
+              <span className="flex items-center">
+                <Eye className="w-3 h-3 mr-1" />
+                {autoCompile ? "Auto Preview" : "Manual Preview"}
+              </span>
+            )}
+            {showPreview && (
+              <span
+                className={`flex items-center text-xs ${
+                  compiledContent === markdownContent
+                    ? "text-green-600 dark:text-green-400"
+                    : "text-yellow-600 dark:text-yellow-400"
+                }`}
+              >
+                <div
+                  className={`w-2 h-2 rounded-full mr-1 ${
+                    compiledContent === markdownContent
+                      ? "bg-green-500"
+                      : "bg-yellow-500"
+                  }`}
+                ></div>
+                {compiledContent === markdownContent
+                  ? "Compiled"
+                  : "Needs compile"}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center space-x-4">
+            <span>LaTeX & Math supported</span>
+            <span>Auto-save enabled</span>
+            {connectionStatus === "connected" && connectedUsers.size > 1 && (
+              <span className="flex items-center">
+                <div className="w-2 h-2 bg-green-500 rounded-full mr-1"></div>
+                {connectedUsers.size} collaborator
+                {connectedUsers.size > 1 ? "s" : ""}
+              </span>
+            )}
           </div>
         </div>
       </div>
@@ -2072,14 +2042,14 @@ const md = new MarkdownIt({
           setIsCommentSidebarOpen(false);
           dismissCommentButton();
         }}
-        noteId={documentId}                      // <-- ADD THIS (assuming 'documentId' is available in this component)
+        noteId={documentId}
         selectedText={commentButtonState.isVisible ? commentButtonState.selectedText : undefined}
         selection={commentButtonState.selection}
         darkMode={darkMode}
         activeCommentId={activeCommentId || undefined}
         setActiveCommentId={(id) => handleSetActiveComment(id || null)}
       />
-    </MathJaxContext>
+    </div>
   );
 };
 
