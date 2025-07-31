@@ -15,7 +15,6 @@ import { EditorView, keymap, Decoration, DecorationSet, lineNumbers } from '@cod
 import { markdown } from '@codemirror/lang-markdown';
 import { oneDark } from '@codemirror/theme-one-dark';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
-import { MathJaxContext, MathJax } from 'better-react-mathjax';
 import { Subscript as MathIcon } from 'lucide-react';
 
 // --- ENHANCED MARKDOWN PARSING IMPORTS ---
@@ -137,6 +136,87 @@ const MergedMarkdownEditor: React.FC<MarkdownEditorProps> = ({
 
   const { commentButtonState, showCommentButton, dismissCommentButton } = useCommentSelection();
   const [activeCommentId, setActiveCommentId] = useState<string | null>(null);
+
+  // --- START: CORRECTED AUTO-SAVE LOGIC ---
+  useEffect(() => {
+    const handleDocUpdate = () => {
+      // When the document changes, immediately mark it as "unsaved"
+      setSaveStatus("unsaved");
+
+      // Clear any previously scheduled save to reset the timer
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+
+      // Schedule a new save to run after 3 seconds
+      saveTimeoutRef.current = setTimeout(async () => {
+        if (!user) return; // Don't save if there's no user
+
+        setSaveStatus("saving");
+        try {
+          const payload = {
+            title: ytitle.toString() || "Untitled Document",
+            content: ytext.toString(),
+            workspaceId: workspaceId || null,
+          };
+
+          const response = documentId
+            ? await fetch(`/api/notes/${documentId}`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload),
+              })
+            : await fetch("/api/notes", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload),
+              });
+
+          if (response.ok) {
+            const savedDoc = await response.json();
+            setSaveStatus("saved");
+            setLastSaved(new Date());
+            if (!documentId && savedDoc._id) {
+              onDocumentSaved?.(savedDoc._id);
+            }
+          } else {
+            setSaveStatus("error");
+          }
+        } catch (error) {
+          console.error("Auto-save error:", error);
+          setSaveStatus("error");
+        }
+      }, 3000); // 3-second delay
+    };
+
+    // Listen for changes in the Yjs document
+    ytext.observe(handleDocUpdate);
+    ytitle.observe(handleDocUpdate);
+
+    // Cleanup function
+    return () => {
+      ytext.unobserve(handleDocUpdate);
+      ytitle.unobserve(handleDocUpdate);
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+    };
+  }, [user, documentId, workspaceId, onDocumentSaved, ytext, ytitle]);
+  // --- END: CORRECTED AUTO-SAVE LOGIC ---
+
+  // Update React state when Yjs state changes (for UI display)
+  useEffect(() => {
+    const syncUI = () => {
+        setMarkdownContent(ytext.toString());
+        setTitle(ytitle.toString());
+    };
+    ytext.observe(syncUI);
+    ytitle.observe(syncUI);
+    return () => {
+        ytext.unobserve(syncUI);
+        ytitle.unobserve(syncUI);
+    };
+  }, [ytext, ytitle]);
 
   // Effect to set the active highlight range
   const setActiveHighlight = StateEffect.define<{ from: number; to: number } | null>();
@@ -537,40 +617,6 @@ const MergedMarkdownEditor: React.FC<MarkdownEditorProps> = ({
       setSaveStatus("error");
     }
   }, [user, saveStatus, ytext, ytitle, workspaceId, documentId, onDocumentSaved]);
-
-  useEffect(() => {
-    const handleDocUpdate = () => {
-      try {
-        setMarkdownContent(ytext.toString());
-        setTitle(ytitle.toString());
-        setSaveStatus("unsaved");
-        refreshEditor();
-
-        if (autoCompile) {
-          compileMarkdown();
-        }
-
-        if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-        saveTimeoutRef.current = setTimeout(() => saveDocument(), 3000);
-      } catch (error) {
-        console.warn("Document update error:", error);
-      }
-    };
-
-    doc.on("update", handleDocUpdate);
-    return () => {
-      doc.off("update", handleDocUpdate);
-      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-    };
-  }, [
-    doc,
-    ytext,
-    ytitle,
-    saveDocument,
-    refreshEditor,
-    autoCompile,
-    compileMarkdown,
-  ]);
 
 const md = new MarkdownIt({
   html: true,
