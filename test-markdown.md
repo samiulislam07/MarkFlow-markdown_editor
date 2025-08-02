@@ -37,7 +37,7 @@ $$
 Here, Q is the query, K is the key, and b is a learnable bias term dependent on the distance between elements i and j. This encourages the model to focus on local context, which is crucial for our task.
 
 ### Chemical Formula Example
-Our model can also handle complex symbolic representations like chemical formulas, such as H~2~O (Water) or C~8~H~10~N~4~O~2~ (Caffeine). This is a test of subscript rendering. The famous equation by Einstein, E=mc^2^, is a test for superscript.
+Our model can also handle complex symbolic representations like chemical formulas, such as $$H_2O$$ (Water) or $$C_8H_10N_4O_2$$ (Caffeine). This is a test of subscript rendering. The famous equation by Einstein, $$ E=mc^2 $$, is a test for superscript.
 
 ---
 
@@ -65,7 +65,7 @@ def train_epoch(model, dataloader, optimizer):
 We hope these revisions and clarifications adequately address the reviewers' concerns. We believe the updated manuscript is significantly stronger and makes a valuable contribution to the field.
 
 ---
-### Footnotes & Abbreviations
+### Footnotes & Abbreviation bla bla
 
 [^1]: Smith, J., & Doe, A. (2022). *Foundations of Modern AI*. AI Press.
 [^2]: Vaswani, A., et al. (2017). *Attention Is All You Need*. NeurIPS.
