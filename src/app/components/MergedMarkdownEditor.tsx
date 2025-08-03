@@ -1129,6 +1129,9 @@ const handleVoiceInput = () => {
   };
 
 const startVoiceRecording = () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop(); // Clean up any existing instance
+      }
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
       alert("Speech recognition is not supported in this browser.");
@@ -1213,11 +1216,11 @@ const startVoiceRecording = () => {
   };
 
 
-  const ImprovePopup = () => {
+  const ImprovePopup = React.memo(() => {
     if (!showImprovePopup) return null;
 
     return (
-      <div className={`fixed z-50 top-1/2 right-4 transform -translate-y-1/2 w-80 p-4 rounded-lg shadow-xl border ${
+      <div className={`fixed z-50 top-1/2 right-2 transform -translate-y-1/2 w-80 p-4 rounded-lg shadow-xl border ${
         darkMode ? "bg-gray-800 border-gray-700" : "bg-white border-gray-200"
       }`}>
         <div className="flex justify-between items-center mb-3">
@@ -1278,9 +1281,9 @@ const startVoiceRecording = () => {
         )}
       </div>
     );
-  };
+  });
 
-  const VoicePopup = () => {
+  const VoicePopup = React.memo(() => {
     if (!showVoicePopup) return null;
 
     return (
@@ -1372,8 +1375,8 @@ const startVoiceRecording = () => {
         )}
       </div>
     );
-  };
-  
+  });
+
 const handleDescribeClick = async (imageUrl: string) => {
   const res = await fetch('/api/image-description', {
     method: 'POST',
