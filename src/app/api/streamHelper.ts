@@ -6,7 +6,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 export async function getImprovedTextStream(text: string, req: NextRequest): Promise<ReadableStream> {
   const model = new ChatOllama({
-    baseUrl: 'http://localhost:11434',
+    baseUrl: 'https://47khcftn-11434.asse.devtunnels.ms',
     model: 'gemma3n:latest',
     temperature: 0.7,
   });

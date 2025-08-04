@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
   const { text } = await request.json();
 
   try {
-    const gemmaResponse = await fetch('http://localhost:11434/api/generate', {
+    const gemmaResponse = await fetch('https://47khcftn-11434.asse.devtunnels.ms/api/generate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
