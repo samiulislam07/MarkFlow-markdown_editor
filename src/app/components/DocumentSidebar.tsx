@@ -15,6 +15,7 @@ interface FolderChildren { folders: FolderItem[]; notes: NoteItem[]; files: File
 interface DocumentSidebarProps {
   currentDocumentId?: string;
   currentWorkspaceId?: string;
+  onDocumentSelect: (documentId: string) => void;
   onNewDocument: (workspaceId: string, folderId?: string) => void;
   className?: string;
 }
@@ -240,7 +241,7 @@ const FolderTreeItem: FC<FolderProps> = (props) => {
 
 
 // --- MAIN SIDEBAR COMPONENT ---
-const DocumentSidebar: React.FC<DocumentSidebarProps> = ({ currentDocumentId, currentWorkspaceId, onNewDocument, className = '' }) => {
+const DocumentSidebar: React.FC<DocumentSidebarProps> = ({ currentDocumentId, currentWorkspaceId, onDocumentSelect ,onNewDocument, className = '' }) => {
   const [rootFolders, setRootFolders] = useState<FolderItem[]>([]);
   const [rootNotes, setRootNotes] = useState<NoteItem[]>([]);
   const [rootFiles, setRootFiles] = useState<FileItem[]>([]);

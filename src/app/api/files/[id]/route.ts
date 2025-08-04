@@ -10,7 +10,7 @@ import supabase from '@/lib/supabase';
 export const dynamic = 'force-dynamic';
 
 // DELETE - Delete a file
-export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(request: NextRequest, { params }: { params: any}) {
   try {
     const { userId } = await auth();
     if (!userId) {
@@ -46,10 +46,10 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
 
     // --- START: CORRECTED DELETE LOGIC ---
     // Use the reliable filePath from the database instead of parsing the URL.
-    if (file.filePath) {
+    if (file.storageUrl) {
       const { error: deleteError } = await supabase.storage
         .from('uploads')
-        .remove([file.filePath]);
+        .remove([file.storageUrl]);
 
       if (deleteError) {
         console.error('Supabase deletion failed:', deleteError.message);

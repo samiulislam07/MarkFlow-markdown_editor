@@ -1,3 +1,4 @@
+
 import { auth, currentUser } from '@clerk/nextjs/server'
 import { connectToDatabase } from '@/lib/mongodb/connect'
 import User from '@/lib/mongodb/models/User'

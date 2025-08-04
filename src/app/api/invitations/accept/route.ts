@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    let user = await User.findOne({ clerkId: userId });
+    const user = await User.findOne({ clerkId: userId });
     if (!user) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }

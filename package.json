@@ -10,8 +10,7 @@
     "seed": "node scripts/seed-database.js",
     "test:db": "node scripts/seed-database.js",
     "party:dev": "partykit dev",
-    "party:deploy": "partykit deploy",
-    "postinstall": "npm rebuild lightningcss --update-binary"
+    "party:deploy": "partykit deploy"
   },
   "dependencies": {
     "@clerk/nextjs": "^6.24.0",
@@ -87,6 +86,7 @@
   "devDependencies": {
     "@eslint/eslintrc": "^3",
     "@tailwindcss/postcss": "^4",
+    "@types/estree": "^1.0.8",
     "@types/form-data": "^2.2.1",
     "@types/formidable": "^3.4.5",
     "@types/katex": "^0.16.7",

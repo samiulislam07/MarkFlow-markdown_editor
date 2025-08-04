@@ -12,7 +12,7 @@ import supabase from '@/lib/supabase';
 export const dynamic = 'force-dynamic';
 
 // --- START: ADDED PUT FUNCTION FOR RENAMING ---
-export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
+export async function PUT(request: NextRequest, { params }: { params: any}) {
   try {
     const { userId } = await auth();
     if (!userId) {
@@ -72,8 +72,8 @@ async function deleteFolderRecursive(folderId: mongoose.Types.ObjectId) {
 
   const filesInFolder = await File.find({ folder: folderId });
   for (const file of filesInFolder) {
-    if (file.filePath) {
-        await supabase.storage.from('uploads').remove([file.filePath]);
+    if (file.storageUrl) {
+        await supabase.storage.from('uploads').remove([file.storageUrl]);
     }
     await File.findByIdAndDelete(file._id);
   }
@@ -84,7 +84,7 @@ async function deleteFolderRecursive(folderId: mongoose.Types.ObjectId) {
 
 
 // DELETE - Delete a folder and its contents
-export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(request: NextRequest, { params }: { params: any }) {
   try {
     const { userId } = await auth();
     if (!userId) {

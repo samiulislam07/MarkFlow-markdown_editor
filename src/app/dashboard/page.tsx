@@ -1,4 +1,4 @@
-// "use client"
+
 import { auth, currentUser } from '@clerk/nextjs/server'
 import mongoose from 'mongoose'
 import { connectToDatabase } from '@/lib/mongodb/connect'

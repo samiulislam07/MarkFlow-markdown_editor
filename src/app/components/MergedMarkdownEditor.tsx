@@ -1377,6 +1377,9 @@ const startVoiceRecording = () => {
     );
   });
 
+  ImprovePopup.displayName = "ImprovePopup";
+  VoicePopup.displayName = "VoicePopup";
+
 const handleDescribeClick = async (imageUrl: string) => {
   const res = await fetch('/api/image-description', {
     method: 'POST',
