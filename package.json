@@ -11,7 +11,7 @@
     "test:db": "node scripts/seed-database.js",
     "party:dev": "partykit dev",
     "party:deploy": "partykit deploy",
-    "postinstall": "npm rebuild lightningcss"
+    "postinstall": "npm rebuild lightningcss --update-binary"
   },
   "dependencies": {
     "@clerk/nextjs": "^6.24.0",
