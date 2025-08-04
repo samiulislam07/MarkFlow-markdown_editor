@@ -25,10 +25,10 @@ export default function GuestLoginButton() {
         ticket: token,
       });
 
-      if (signInAttempt?.status === 'complete') {
+      if (signInAttempt?.status === 'complete' && setActive) {
         await setActive({ session: signInAttempt.createdSessionId });
         // User is now signed in as guest
-      }
+        }
     } catch (error) {
       console.error('Guest login failed:', error);
       // Handle error (show toast, etc.)
