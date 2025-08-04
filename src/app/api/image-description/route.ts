@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
     const base64Image = buffer.toString('base64');
 
     // Step 2: Send to Gemma3n multimodal API
-    const gemmaRes = await fetch('http://localhost:11434/api/generate', {
+    const gemmaRes = await fetch('https://47khcftn-11434.asse.devtunnels.ms/api/generate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

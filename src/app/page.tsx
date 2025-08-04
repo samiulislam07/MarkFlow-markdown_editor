@@ -191,7 +191,6 @@ export default function Home() {
                 <ArrowRight className="inline-block ml-2 w-5 h-5 group-hover:translate-x-1 transition-transform" />
               </Link>
               <div className="flex flex-col sm:flex-row gap-4">
-                <GuestLoginButton />
                 <Link
                   href="/demo"
                   className="px-8 py-4 bg-white/10 backdrop-blur-sm text-white rounded-xl text-lg font-semibold hover:bg-white/20 transition-all border border-white/20 text-center"

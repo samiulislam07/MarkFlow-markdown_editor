@@ -1304,6 +1304,7 @@ const startVoiceRecording = () => {
               darkMode ? "hover:bg-gray-700" : "hover:bg-gray-100"
             }`}
           >
+            
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -1314,10 +1315,11 @@ const startVoiceRecording = () => {
               {listening ? (
                 <div className="flex flex-col items-center">
                   <div className="w-16 h-16 bg-red-100 dark:bg-red-900 rounded-full flex items-center justify-center mb-2">
-                    <MicOff 
+                    <button><MicOff 
                       className="w-8 h-8 text-red-600 dark:text-red-300 cursor-pointer" 
                       onClick={stopVoiceRecording}
                     />
+                    </button>
                   </div>
                   <p className="text-sm text-red-600 dark:text-red-300 animate-pulse">
                     Listening... Click to stop
@@ -1326,10 +1328,12 @@ const startVoiceRecording = () => {
               ) : (
                 <div className="flex flex-col items-center">
                   <div className="w-16 h-16 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center mb-2">
-                    <Mic 
+                    <button>
+                      <Mic 
                       className="w-8 h-8 text-blue-600 dark:text-blue-300 cursor-pointer" 
                       onClick={startVoiceRecording}
                     />
+                    </button>
                   </div>
                   <p className="text-sm text-gray-600 dark:text-gray-300">
                     {voiceProcessing ? "Processing..." : "Click to start recording"}
