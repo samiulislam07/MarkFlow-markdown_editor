@@ -1,9 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { GoogleGenerativeAI } from '@google/generative-ai';
 export const config = {
   api: {
     bodyParser: true,
   },
 };
+
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+
+const genAI = new GoogleGenerativeAI(GEMINI_API_KEY!);
 
 export async function POST(request: NextRequest) {
   if (request.method !== 'POST') return NextResponse.json({ error: 'Method Not Allowed' }, { status: 405 });
@@ -11,19 +16,17 @@ export async function POST(request: NextRequest) {
   const { text } = await request.json();
 
   try {
-    const gemmaResponse = await fetch('https://47khcftn-11434.asse.devtunnels.ms/api/generate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'gemma3n',
-        prompt: `Convert this spoken input into Markdown:\n\n"${text}"`,
-        stream: false,
-      }),
-    });
+    const model = genAI.getGenerativeModel({ model: 'gemma-3n-e2b-it' }); // or gemini-pro
 
-    const data = await gemmaResponse.json();
+    const chat = model.startChat({ history: [] });
 
-    const markdown = data.response || 'Could not generate markdown.';
+    const result = await chat.sendMessage(`Convert this spoken input into Markdown:\n\n"${text}"`);
+    const response = await result.response;
+    const markdown = response.text().trim();
+
+    //const data = await gemmaResponse.json();
+
+    //const markdown = data.response || 'Could not generate markdown.';
 
     return NextResponse.json({ markdown }, { status: 200 });
   } catch (err) {
