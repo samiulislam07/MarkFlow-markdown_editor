@@ -16,9 +16,8 @@ import {
   Sparkles,
   Eye,
 } from "lucide-react";
-import { SignedIn, SignedOut, UserButton } from "@clerk/nextjs";
+import { SignedIn, SignedOut } from "@clerk/nextjs";
 import Link from "next/link";
-import GuestLoginButton from "@/components/ui/GuestLoginButton";
 
 export default function Home() {
   const [currentFeature, setCurrentFeature] = useState(0);
@@ -106,58 +105,6 @@ export default function Home() {
         <div className="absolute bottom-1/4 left-1/4 w-80 h-80 bg-cyan-500/10 rounded-full blur-3xl animate-pulse" />
       </div> */}
 
-      {/* Navigation */}
-      <nav className="relative z-50 p-6 flex justify-between items-center container mx-auto">
-        <div className="flex items-center space-x-2">
-          <div className="w-8 h-8 bg-gradient-to-r from-blue-500 to-purple-500 rounded-lg flex items-center justify-center">
-            <Sparkles className="w-5 h-5 text-white" />
-          </div>
-          <h1 className="text-2xl font-bold text-white">MarkFlow</h1>
-        </div>
-        <div>
-          <SignedOut>
-            <div className="flex items-center space-x-4">
-              <Link
-                href="/features"
-                className="text-gray-300 hover:text-white transition-colors"
-              >
-                Features
-              </Link>
-              <Link
-                href="/pricing"
-                className="text-gray-300 hover:text-white transition-colors"
-              >
-                Pricing
-              </Link>
-              <GuestLoginButton />
-              <Link
-                href="/sign-in"
-                className="bg-white/10 backdrop-blur-sm text-white px-4 py-2 rounded-lg hover:bg-white/20 transition-all border border-white/20"
-              >
-                Sign In
-              </Link>
-              <Link
-                href="/sign-up"
-                className="bg-gradient-to-r from-blue-500 to-purple-500 text-white px-4 py-2 rounded-lg hover:from-blue-600 hover:to-purple-600 transition-all shadow-lg"
-              >
-                Sign Up
-              </Link>
-            </div>
-          </SignedOut>
-          <SignedIn>
-            <div className="flex items-center space-x-4">
-              <Link
-                href="/dashboard"
-                className="text-gray-300 hover:text-white transition-colors"
-              >
-                Dashboard
-              </Link>
-              <UserButton afterSignOutUrl="/" />
-            </div>
-          </SignedIn>
-        </div>
-      </nav>
-
       {/* Hero Section */}
       <main className="relative z-10 container mx-auto px-4 py-16">
         <div className="text-center mb-20">
@@ -192,7 +139,7 @@ export default function Home() {
               </Link>
               <div className="flex flex-col sm:flex-row gap-4">
                 <Link
-                  href="/demo"
+                  href=""
                   className="px-8 py-4 bg-white/10 backdrop-blur-sm text-white rounded-xl text-lg font-semibold hover:bg-white/20 transition-all border border-white/20 text-center"
                 >
                   Watch Demo
@@ -211,7 +158,7 @@ export default function Home() {
                 <ArrowRight className="inline-block ml-2 w-5 h-5 group-hover:translate-x-1 transition-transform" />
               </Link>
               <Link
-                href="/editor"
+                href="/dashboard"
                 className="px-8 py-4 bg-white/10 backdrop-blur-sm text-white rounded-xl text-lg font-semibold hover:bg-white/20 transition-all border border-white/20"
               >
                 New Document

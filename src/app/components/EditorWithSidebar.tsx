@@ -4,9 +4,9 @@ import { useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import MergedMarkdownEditor from './MergedMarkdownEditor';
 import DocumentSidebar from './DocumentSidebar';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
 import * as Y from 'yjs';
 import YPartyKitProvider from 'y-partykit/provider';
+import { ThemeProvider } from '@/hooks/useTheme';
 
 interface EditorWithSidebarProps {
   documentId?: string;
@@ -48,43 +48,37 @@ const EditorWithSidebar: React.FC<EditorWithSidebarProps> = ({
   }, [sidebarCollapsed]);
 
   return (
-    <div className="flex h-screen bg-white">
-      {/* Sidebar Toggle Button */}
-      <button
-        onClick={toggleSidebar}
-        className="fixed top-4 left-4 z-50 p-2 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 transition-colors"
-        title={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}
-      >
-        {sidebarCollapsed ? (
-          <ChevronRight className="w-4 h-4 text-gray-600" />
-        ) : (
-          <ChevronLeft className="w-4 h-4 text-gray-600" />
-        )}
-      </button>
+    <ThemeProvider>
+      <div className="flex h-screen bg-white">
+        {/* Sidebar Container with smooth transition */}
+        <div 
+          className={`transition-all duration-300 ease-in-out overflow-hidden ${
+            sidebarCollapsed ? 'w-0' : 'w-64'
+          }`}
+        >
+          <DocumentSidebar
+            currentDocumentId={documentId}
+            currentWorkspaceId={workspaceId}
+            onDocumentSelect={handleDocumentSelect}
+            onNewDocument={handleNewDocument}
+            className="w-64 flex-shrink-0"
+          />
+        </div>
 
-      {/* Sidebar */}
-      {!sidebarCollapsed && (
-        <DocumentSidebar
-          currentDocumentId={documentId}
-          currentWorkspaceId={workspaceId}
-          onDocumentSelect={handleDocumentSelect}
-          onNewDocument={handleNewDocument}
-          className="flex-shrink-0"
-        />
-      )}
-
-      {/* Main Editor */}
-      <div className={`flex-1 ${sidebarCollapsed ? '' : 'ml-0'}`}>
-        <MergedMarkdownEditor
-          documentId={documentId}
-          workspaceId={workspaceId}
-          doc={doc}
-          provider={provider}
-          onDocumentSaved={handleDocumentSaved}
-          isDocumentSidebarOpen={!sidebarCollapsed}
-        />
+        {/* Main Editor */}
+        <div className="flex-1 min-w-0">
+          <MergedMarkdownEditor
+            documentId={documentId}
+            workspaceId={workspaceId}
+            doc={doc}
+            provider={provider}
+            onDocumentSaved={handleDocumentSaved}
+            isDocumentSidebarOpen={!sidebarCollapsed}
+            onToggleSidebar={toggleSidebar}
+          />
+        </div>
       </div>
-    </div>
+    </ThemeProvider>
   );
 };
 

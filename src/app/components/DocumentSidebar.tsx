@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, FC, useRef } from 'react';
 import { ChevronRight, Folder, FileText, Plus, Loader2, Upload, MoreHorizontal, Trash2, Download, FolderPlus, Edit, Image } from 'lucide-react';
 import Link from 'next/link';
 import ConfirmationModal from './ConfirmationModal';
+import { useTheme } from '@/hooks/useTheme';
 
 // --- TYPE DEFINITIONS ---
 interface NoteItem { _id: string; title: string; }
@@ -26,9 +27,10 @@ interface InlineInputProps {
   onSave: (name: string) => void;
   onCancel: () => void;
   icon: React.ReactNode;
+  darkMode?: boolean;
 }
 
-const InlineInput: FC<InlineInputProps> = ({ level, initialName, onSave, onCancel, icon }) => {
+const InlineInput: FC<InlineInputProps> = ({ level, initialName, onSave, onCancel, icon, darkMode = false }) => {
   const [name, setName] = useState(initialName);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -59,14 +61,14 @@ const InlineInput: FC<InlineInputProps> = ({ level, initialName, onSave, onCance
         onChange={(e) => setName(e.target.value)}
         onKeyDown={handleKeyDown}
         onBlur={() => onSave(name.trim())}
-        className="text-sm bg-white border border-indigo-500 rounded px-1 py-0.5 w-full h-7 focus:outline-none"
+        className={`text-sm ${darkMode ? 'bg-gray-700 border-indigo-400 text-gray-100' : 'bg-white border-indigo-500'} border rounded px-1 py-0.5 w-full h-7 focus:outline-none`}
       />
     </div>
   );
 };
 
-interface ItemContextMenuProps { item: NoteItem | FileItem; onDelete: () => void; onDownload: () => void; onDescribe: () => void; }
-const ItemContextMenu: FC<ItemContextMenuProps> = ({ onDelete, onDownload, onDescribe }) => {
+interface ItemContextMenuProps { item: NoteItem | FileItem; onDelete: () => void; onDownload: () => void; onDescribe: () => void; darkMode?: boolean; }
+const ItemContextMenu: FC<ItemContextMenuProps> = ({ onDelete, onDownload, onDescribe, darkMode = false }) => {
     const [isOpen, setIsOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
     useEffect(() => {
@@ -76,20 +78,20 @@ const ItemContextMenu: FC<ItemContextMenuProps> = ({ onDelete, onDownload, onDes
     }, []);
     return (
         <div className="relative" ref={menuRef}>
-            <button onClick={(e) => { e.stopPropagation(); e.preventDefault(); setIsOpen(!isOpen); }} className="p-1 rounded hover:bg-gray-200" title="More options"><MoreHorizontal className="w-4 h-4 text-gray-500" /></button>
+            <button onClick={(e) => { e.stopPropagation(); e.preventDefault(); setIsOpen(!isOpen); }} className={`p-1 rounded ${darkMode ? 'hover:bg-gray-600' : 'hover:bg-gray-200'}`} title="More options"><MoreHorizontal className={`w-4 h-4 ${darkMode ? 'text-gray-400' : 'text-gray-500'}`} /></button>
             {isOpen && (
-                <div className="absolute right-0 mt-2 w-40 bg-white border border-gray-200 rounded-md shadow-lg z-20">
-                    <button onClick={(e) => { e.stopPropagation(); onDownload(); setIsOpen(false); }} className="flex items-center w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-100"><Download className="w-4 h-4 mr-2" /> Download</button>
-                    <button onClick={(e) => { e.stopPropagation(); onDelete(); setIsOpen(false); }} className="flex items-center w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50"><Trash2 className="w-4 h-4 mr-2" /> Delete</button>
-                    <button onClick={(e) => { e.stopPropagation(); onDescribe(); setIsOpen(false); }} className="flex items-center w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50"><Image className="w-4 h-4 mr-2" /> Describe</button>
+                <div className={`absolute right-0 mt-2 w-40 ${darkMode ? 'bg-gray-800 border-gray-600' : 'bg-white border-gray-200'} border rounded-md shadow-lg z-20`}>
+                    <button onClick={(e) => { e.stopPropagation(); onDownload(); setIsOpen(false); }} className={`flex items-center w-full text-left px-3 py-2 text-sm ${darkMode ? 'text-gray-300 hover:bg-gray-700' : 'text-gray-700 hover:bg-gray-100'}`}><Download className="w-4 h-4 mr-2" /> Download</button>
+                    <button onClick={(e) => { e.stopPropagation(); onDelete(); setIsOpen(false); }} className={`flex items-center w-full text-left px-3 py-2 text-sm text-red-600 ${darkMode ? 'hover:bg-red-900' : 'hover:bg-red-50'}`}><Trash2 className="w-4 h-4 mr-2" /> Delete</button>
+                    <button onClick={(e) => { e.stopPropagation(); onDescribe(); setIsOpen(false); }} className={`flex items-center w-full text-left px-3 py-2 text-sm text-red-600 ${darkMode ? 'hover:bg-red-900' : 'hover:bg-red-50'}`}><Image className="w-4 h-4 mr-2" /> Describe</button>
                 </div>
             )}
         </div>
     );
 };
 
-interface FolderContextMenuProps { onUpload: () => void; onNewFolder: () => void; onRename: () => void; onDelete: () => void; }
-const FolderContextMenu: FC<FolderContextMenuProps> = ({ onUpload, onNewFolder, onRename, onDelete }) => {
+interface FolderContextMenuProps { onUpload: () => void; onNewFolder: () => void; onRename: () => void; onDelete: () => void; darkMode?: boolean; }
+const FolderContextMenu: FC<FolderContextMenuProps> = ({ onUpload, onNewFolder, onRename, onDelete, darkMode = false }) => {
     const [isOpen, setIsOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
     useEffect(() => {
@@ -99,13 +101,13 @@ const FolderContextMenu: FC<FolderContextMenuProps> = ({ onUpload, onNewFolder, 
     }, []);
     return (
         <div className="relative" ref={menuRef}>
-            <button onClick={(e) => { e.stopPropagation(); e.preventDefault(); setIsOpen(!isOpen); }} className="p-1 rounded hover:bg-gray-200 opacity-0 group-hover:opacity-100 transition-opacity" title="Folder options"><MoreHorizontal className="w-4 h-4 text-gray-500" /></button>
+            <button onClick={(e) => { e.stopPropagation(); e.preventDefault(); setIsOpen(!isOpen); }} className={`p-1 rounded ${darkMode ? 'hover:bg-gray-600' : 'hover:bg-gray-200'} opacity-0 group-hover:opacity-100 transition-opacity`} title="Folder options"><MoreHorizontal className={`w-4 h-4 ${darkMode ? 'text-gray-400' : 'text-gray-500'}`} /></button>
             {isOpen && (
-                <div className="absolute right-0 mt-2 w-48 bg-white border border-gray-200 rounded-md shadow-lg z-20">
-                    <button onClick={(e) => { e.stopPropagation(); onUpload(); setIsOpen(false); }} className="flex items-center w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-100"><Upload className="w-4 h-4 mr-2" /> Upload File</button>
-                    <button onClick={(e) => { e.stopPropagation(); onNewFolder(); setIsOpen(false); }} className="flex items-center w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-100"><FolderPlus className="w-4 h-4 mr-2" /> New Folder</button>
-                    <button onClick={(e) => { e.stopPropagation(); onRename(); setIsOpen(false); }} className="flex items-center w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-100"><Edit className="w-4 h-4 mr-2" /> Rename</button>
-                    <button onClick={(e) => { e.stopPropagation(); onDelete(); setIsOpen(false); }} className="flex items-center w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50"><Trash2 className="w-4 h-4 mr-2" /> Delete Folder</button>
+                <div className={`absolute right-0 mt-2 w-48 ${darkMode ? 'bg-gray-800 border-gray-600' : 'bg-white border-gray-200'} border rounded-md shadow-lg z-20`}>
+                    <button onClick={(e) => { e.stopPropagation(); onUpload(); setIsOpen(false); }} className={`flex items-center w-full text-left px-3 py-2 text-sm ${darkMode ? 'text-gray-300 hover:bg-gray-700' : 'text-gray-700 hover:bg-gray-100'}`}><Upload className="w-4 h-4 mr-2" /> Upload File</button>
+                    <button onClick={(e) => { e.stopPropagation(); onNewFolder(); setIsOpen(false); }} className={`flex items-center w-full text-left px-3 py-2 text-sm ${darkMode ? 'text-gray-300 hover:bg-gray-700' : 'text-gray-700 hover:bg-gray-100'}`}><FolderPlus className="w-4 h-4 mr-2" /> New Folder</button>
+                    <button onClick={(e) => { e.stopPropagation(); onRename(); setIsOpen(false); }} className={`flex items-center w-full text-left px-3 py-2 text-sm ${darkMode ? 'text-gray-300 hover:bg-gray-700' : 'text-gray-700 hover:bg-gray-100'}`}><Edit className="w-4 h-4 mr-2" /> Rename</button>
+                    <button onClick={(e) => { e.stopPropagation(); onDelete(); setIsOpen(false); }} className={`flex items-center w-full text-left px-3 py-2 text-sm text-red-600 ${darkMode ? 'hover:bg-red-900' : 'hover:bg-red-50'}`}><Trash2 className="w-4 h-4 mr-2" /> Delete Folder</button>
                 </div>
             )}
         </div>
@@ -242,6 +244,7 @@ const FolderTreeItem: FC<FolderProps> = (props) => {
 
 // --- MAIN SIDEBAR COMPONENT ---
 const DocumentSidebar: React.FC<DocumentSidebarProps> = ({ currentDocumentId, currentWorkspaceId, onDocumentSelect ,onNewDocument, className = '' }) => {
+  const { darkMode } = useTheme();
   const [rootFolders, setRootFolders] = useState<FolderItem[]>([]);
   const [rootNotes, setRootNotes] = useState<NoteItem[]>([]);
   const [rootFiles, setRootFiles] = useState<FileItem[]>([]);
@@ -437,20 +440,20 @@ const DocumentSidebar: React.FC<DocumentSidebarProps> = ({ currentDocumentId, cu
     setItemToDelete(null);
   };
 
-  if (isLoading) return <div className={`w-64 bg-gray-50 border-r border-gray-200 p-4 ${className}`}><Loader2 className="w-6 h-6 animate-spin text-gray-400 mx-auto mt-10" /></div>;
-  if (error) return <div className={`w-64 bg-gray-50 border-r border-gray-200 p-4 ${className}`}><p className="text-red-500 text-sm">{error}</p></div>;
+  if (isLoading) return <div className={`w-64 ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-200'} border-r p-4 ${className}`}><Loader2 className={`w-6 h-6 animate-spin ${darkMode ? 'text-gray-500' : 'text-gray-400'} mx-auto mt-10`} /></div>;
+  if (error) return <div className={`w-64 ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-200'} border-r p-4 ${className}`}><p className="text-red-500 text-sm">{error}</p></div>;
 
   return (
     <>
       <input type="file" ref={fileInputRef} onChange={handleFileSelected} className="hidden" />
-      <div className={`w-64 bg-gray-50 border-r border-gray-200 flex flex-col ${className}`}>
-        <div className="p-4 border-b border-gray-200 mt-12">
-          <h2 className="text-sm font-semibold text-gray-900 truncate">{workspaceName}</h2>
+      <div className={`w-64 h-full ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-200'} border-r flex flex-col ${className}`}>
+        <div className={`p-4 ${darkMode ? 'border-gray-700' : 'border-gray-200'} border-b mt-12`}>
+          <h2 className={`text-sm font-semibold ${darkMode ? 'text-gray-100' : 'text-gray-900'} truncate`}>{workspaceName}</h2>
         </div>
         <div className="flex-1 overflow-y-auto p-2 space-y-1">
-          <button onClick={() => onNewDocument(currentWorkspaceId!)} className="flex items-center w-full p-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg"><Plus className="w-4 h-4 mr-2" />New Document</button>
-          <button onClick={() => handleUploadClick(null)} className="flex items-center w-full p-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg"><Upload className="w-4 h-4 mr-2" />Upload File</button>
-          <button onClick={() => handleInitiateNewFolder(null)} className="flex items-center w-full p-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg"><FolderPlus className="w-4 h-4 mr-2" />New Folder</button>
+          <button onClick={() => onNewDocument(currentWorkspaceId!)} className={`flex items-center w-full p-2 text-sm ${darkMode ? 'text-gray-300 hover:bg-gray-700' : 'text-gray-600 hover:bg-gray-100'} rounded-lg`}><Plus className="w-4 h-4 mr-2" />New Document</button>
+          <button onClick={() => handleUploadClick(null)} className={`flex items-center w-full p-2 text-sm ${darkMode ? 'text-gray-300 hover:bg-gray-700' : 'text-gray-600 hover:bg-gray-100'} rounded-lg`}><Upload className="w-4 h-4 mr-2" />Upload File</button>
+          <button onClick={() => handleInitiateNewFolder(null)} className={`flex items-center w-full p-2 text-sm ${darkMode ? 'text-gray-300 hover:bg-gray-700' : 'text-gray-600 hover:bg-gray-100'} rounded-lg`}><FolderPlus className="w-4 h-4 mr-2" />New Folder</button>
 
           {creatingFolder?.parentId === null && (
             <InlineInput 
@@ -458,7 +461,8 @@ const DocumentSidebar: React.FC<DocumentSidebarProps> = ({ currentDocumentId, cu
               onSave={(name) => handleSaveFolder(name, null)} 
               onCancel={handleCancelNewFolder}
               initialName="New Folder"
-              icon={<Folder className="w-4 h-4 mr-2 text-gray-600 flex-shrink-0" />}
+              icon={<Folder className={`w-4 h-4 mr-2 ${darkMode ? 'text-gray-400' : 'text-gray-600'} flex-shrink-0`} />}
+              darkMode={darkMode}
             />
           )}
 
@@ -486,27 +490,27 @@ const DocumentSidebar: React.FC<DocumentSidebarProps> = ({ currentDocumentId, cu
           ))}
 
           {rootNotes.map((note) => (
-            <div key={note._id} className="group flex items-center justify-between p-2 rounded-md hover:bg-gray-100">
-                <Link href={`/editor/${note._id}`} className={`flex items-center flex-grow truncate ${currentDocumentId === note._id ? 'bg-blue-50' : ''}`}>
-                    <FileText className="w-4 h-4 mr-2 text-gray-500 flex-shrink-0" />
-                    <span className={`text-sm truncate ${currentDocumentId === note._id ? 'text-blue-700 font-medium' : 'text-gray-700'}`}>{note.title || 'Untitled'}</span>
+            <div key={note._id} className={`group flex items-center justify-between p-2 rounded-md ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}>
+                <Link href={`/editor/${note._id}`} className={`flex items-center flex-grow truncate ${currentDocumentId === note._id ? (darkMode ? 'bg-blue-900' : 'bg-blue-50') : ''}`}>
+                    <FileText className={`w-4 h-4 mr-2 ${darkMode ? 'text-gray-400' : 'text-gray-500'} flex-shrink-0`} />
+                    <span className={`text-sm truncate ${currentDocumentId === note._id ? (darkMode ? 'text-blue-300 font-medium' : 'text-blue-700 font-medium') : (darkMode ? 'text-gray-300' : 'text-gray-700')}`}>{note.title || 'Untitled'}</span>
                 </Link>
-                <div className="opacity-0 group-hover:opacity-100 transition-opacity"><ItemContextMenu item={note} onDelete={() => handleDeleteItem(note, 'note')} onDownload={() => handleDownloadItem(note, 'note')} onDescribe={() => handleDescribeClick(note._id)} /></div>
+                <div className="opacity-0 group-hover:opacity-100 transition-opacity"><ItemContextMenu item={note} onDelete={() => handleDeleteItem(note, 'note')} onDownload={() => handleDownloadItem(note, 'note')} onDescribe={() => handleDescribeClick(note._id)} darkMode={darkMode} /></div>
             </div>
           ))}
           
           {rootFiles.map((file) => (
-            <div key={file._id} className="group flex items-center justify-between p-2 rounded-md hover:bg-gray-100">
+            <div key={file._id} className={`group flex items-center justify-between p-2 rounded-md ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}>
                 <a href={file.storageUrl} target="_blank" rel="noopener noreferrer" className="flex items-center flex-grow truncate">
-                    <FileText className="w-4 h-4 mr-2 text-green-600 flex-shrink-0" />
-                    <span className="text-sm text-gray-700 truncate">{file.fileName}</span>
+                    <FileText className={`w-4 h-4 mr-2 ${darkMode ? 'text-green-400' : 'text-green-600'} flex-shrink-0`} />
+                    <span className={`text-sm ${darkMode ? 'text-gray-300' : 'text-gray-700'} truncate`}>{file.fileName}</span>
                 </a>
-                <div className="opacity-0 group-hover:opacity-100 transition-opacity"><ItemContextMenu item={file} onDelete={() => handleDeleteItem(file, 'file')} onDownload={() => handleDownloadItem(file, 'file')} onDescribe={() => handleDescribeClick(file.storageUrl)} /></div>
+                <div className="opacity-0 group-hover:opacity-100 transition-opacity"><ItemContextMenu item={file} onDelete={() => handleDeleteItem(file, 'file')} onDownload={() => handleDownloadItem(file, 'file')} onDescribe={() => handleDescribeClick(file.storageUrl)} darkMode={darkMode} /></div>
             </div>
           ))}
           
            {!isLoading && rootFolders.length === 0 && rootNotes.length === 0 && rootFiles.length === 0 && !creatingFolder && (
-              <p className="p-4 text-xs text-gray-500 text-center">This workspace is empty.</p>
+              <p className={`p-4 text-xs ${darkMode ? 'text-gray-400' : 'text-gray-500'} text-center`}>This workspace is empty.</p>
           )}
         </div>
       </div>

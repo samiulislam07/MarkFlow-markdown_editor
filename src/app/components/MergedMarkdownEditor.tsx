@@ -11,7 +11,7 @@ import { useRouter } from 'next/navigation';
 import {
   Bold, Italic, Code, Link, List, ListOrdered, Quote, Minus,
   Copy, Download, Eye, Maximize, Minimize, Save,
-  ArrowLeft, Check, AlertCircle, Loader2, Edit3,
+  Check, AlertCircle, Loader2, Edit3,
   LucideIcon, Moon, Sun, Palette, MessageSquare, Play,
   Table, Hash, Strikethrough, Subscript, Superscript,
   Wand,
@@ -21,14 +21,17 @@ import {
   CheckCircle,
   RefreshCw,
   MicOff,
-  Mic
+  Mic,
+  PanelLeft,
+  PanelLeftClose,
+  LayoutDashboard
 } from 'lucide-react';
 
 import { EditorState, StateField, StateEffect } from '@codemirror/state';
 import { EditorView, keymap, Decoration, DecorationSet, lineNumbers } from '@codemirror/view';
 import { markdown } from '@codemirror/lang-markdown';
 import { oneDark } from '@codemirror/theme-one-dark';
-import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
+import { defaultKeymap, history, historyKeymap, selectAll } from '@codemirror/commands';
 import { Subscript as MathIcon } from 'lucide-react';
 
 // --- ENHANCED MARKDOWN PARSING IMPORTS ---
@@ -47,6 +50,7 @@ import { nanoid } from 'nanoid';
 //changes
 import { useLLMImprove } from '@/hooks/useLLMImprove';
 import { useImproveSelection } from '@/hooks/useImproveSelection';
+import { useTheme } from '@/hooks/useTheme';
 
 // --- ENHANCED MARKDOWN PARSING IMPORTS ---
 import { unified } from 'unified';
@@ -74,6 +78,7 @@ interface MarkdownEditorProps {
   provider: YPartyKitProvider;
   onDocumentSaved?: (newDocumentId: string) => void;
   isDocumentSidebarOpen?: boolean;
+  onToggleSidebar?: () => void;
 }
 
 // Helper function to recursively find a comment by its ID
@@ -94,7 +99,8 @@ const MergedMarkdownEditor: React.FC<MarkdownEditorProps> = ({
   doc, 
   provider, 
   onDocumentSaved,
-  isDocumentSidebarOpen = false 
+  isDocumentSidebarOpen = false,
+  onToggleSidebar 
 }) => {
   const { user } = useUser();
   const router = useRouter();
@@ -112,12 +118,12 @@ const MergedMarkdownEditor: React.FC<MarkdownEditorProps> = ({
   // --- UI-ONLY STATE ---
   const [htmlContent, setHtmlContent] = useState<string>('');
   const [showPreview, setShowPreview] = useState<boolean>(true);
+  const { darkMode, toggleDarkMode } = useTheme();
   const [isFullScreen, setIsFullScreen] = useState<boolean>(false);
   const [saveStatus, setSaveStatus] = useState<
     "saved" | "saving" | "unsaved" | "error"
   >("saved");
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
-  const [darkMode, setDarkMode] = useState<boolean>(false);
   const [showThemePicker, setShowThemePicker] = useState<boolean>(false);
   const [connectionStatus, setConnectionStatus] = useState<
     "connected" | "disconnected" | "connecting"
@@ -175,6 +181,7 @@ const MergedMarkdownEditor: React.FC<MarkdownEditorProps> = ({
   } = useImproveSelection();
 
   const [processing, setProcessing] = useState(false);
+  const [isSelectingAll, setIsSelectingAll] = useState(false);
 
 
   const { commentButtonState, showCommentButton, dismissCommentButton } = useCommentSelection();
@@ -341,8 +348,8 @@ const MergedMarkdownEditor: React.FC<MarkdownEditorProps> = ({
 
   const scrollSyncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  const toggleDarkMode = () => {
-    setDarkMode(!darkMode);
+  const handleToggleDarkMode = () => {
+    toggleDarkMode();
     setShowThemePicker(false);
   };
 
@@ -760,11 +767,67 @@ const md = new MarkdownIt({
       const startState = EditorState.create({
         doc: ytext.toString(),
         extensions: [
-          keymap.of([...defaultKeymap, ...historyKeymap, ...yUndoManagerKeymap]),
+          keymap.of([
+            { 
+              key: "Ctrl-a", 
+              run: (view) => {
+                // Set flag to prevent selection handler interference
+                setIsSelectingAll(true);
+                // Dismiss buttons
+                dismissCommentButton();
+                dismissImproveButton();
+                // Select all
+                const result = selectAll(view);
+                // Reset flag after a short delay
+                setTimeout(() => setIsSelectingAll(false), 100);
+                return result;
+              }
+            },
+            { 
+              key: "Cmd-a", 
+              run: (view) => {
+                // Set flag to prevent selection handler interference
+                setIsSelectingAll(true);
+                // Dismiss buttons
+                dismissCommentButton();
+                dismissImproveButton();
+                // Select all
+                const result = selectAll(view);
+                // Reset flag after a short delay
+                setTimeout(() => setIsSelectingAll(false), 100);
+                return result;
+              }
+            },
+            ...defaultKeymap, 
+            ...historyKeymap, 
+            ...yUndoManagerKeymap
+          ]),
           history(),
           markdown(),
           EditorView.lineWrapping,
-          lineNumbers(),
+          lineNumbers({
+            formatNumber: (lineNo, state) => {
+              // Prevent problematic line numbers from appearing out of order
+              const totalLines = state ? state.doc.lines : 1;
+              
+              // Ensure line number is valid and in range
+              if (lineNo < 1 || lineNo > totalLines) {
+                return '';
+              }
+              
+              // Special handling for problematic numbers that tend to appear out of order
+              const problematicNumbers = [9, 99, 999, 9999];
+              
+              // If this is a problematic number and it's greater than total lines,
+              // don't display it (this prevents out-of-order display)
+              if (problematicNumbers.includes(lineNo) && lineNo > totalLines) {
+                return '';
+              }
+              
+              // For valid line numbers, ensure proper formatting
+              return String(lineNo).padStart(String(totalLines).length, ' ');
+            }
+          }),
           darkMode ? oneDark : [],
           yCollab(ytext, provider.awareness, { undoManager: new Y.UndoManager(ytext) }),
           updateListener,
@@ -774,7 +837,12 @@ const md = new MarkdownIt({
               const selection = update.state.selection.main;
               if (!selection.empty) {
                 const text = update.state.sliceDoc(selection.from, selection.to).trim();
-                if (text.length > 2) {
+                // Don't show comment button for very large selections (like select all)
+                const docLength = update.state.doc.length;
+                const selectionLength = selection.to - selection.from;
+                const isLargeSelection = selectionLength > docLength * 0.8; // If selection is >80% of document
+                
+                if (text.length > 2 && text.length < 500 && !isLargeSelection) {
                   const domRect = editorViewRef.current?.coordsAtPos(selection.to);
                   const editorRect = editorRef.current?.getBoundingClientRect();
                   if (domRect && editorRect) {
@@ -1046,6 +1114,9 @@ const ImproveButton = ({
 
 useEffect(() => {
   const handleSelectionChange = () => {
+    // Skip processing if we're in the middle of a select-all operation
+    if (isSelectingAll) return;
+    
     if (!editorRef.current || !editorViewRef.current || !user || !documentId) return;
     
     const selection = window.getSelection();
@@ -1060,6 +1131,16 @@ useEffect(() => {
 
     // Get the position of the selection
     const range = selection.getRangeAt(0);
+    
+    // Check if the selection is within the editor
+    const editorElement = editorRef.current;
+    if (!editorElement.contains(range.commonAncestorContainer)) {
+      // Selection is outside the editor, dismiss buttons
+      dismissCommentButton();
+      dismissImproveButton();
+      return;
+    }
+
     const rect = range.getBoundingClientRect();
     
     const buttonPosition = {
@@ -1067,22 +1148,46 @@ useEffect(() => {
       y: rect.top + window.scrollY - 40
     };
 
-    // Get the absolute positions within the editor
+    // Get the absolute positions within the editor with error handling
     const editor = editorViewRef.current;
-    const doc = editor.state.doc;
-    const from = editor.posAtDOM(range.startContainer) + range.startOffset;
-    const to = editor.posAtDOM(range.endContainer) + range.endOffset;
+    
+    try {
+      const from = editor.posAtDOM(range.startContainer) + range.startOffset;
+      const to = editor.posAtDOM(range.endContainer) + range.endOffset;
+      
+      // Validate positions are within document bounds
+      const docLength = editor.state.doc.length;
+      if (from < 0 || to < 0 || from > docLength || to > docLength) {
+        dismissCommentButton();
+        dismissImproveButton();
+        return;
+      }
 
-    const selectionPosition = { from, to };
-
-    // Always update both buttons with selection info
-    showCommentButton(selectedText, buttonPosition, selectionPosition);
-    showImproveButton(selectedText, buttonPosition, selectionPosition);
+      // Don't show comment button for very large selections (like select all)
+      const selectionLength = to - from;
+      const isLargeSelection = selectionLength > docLength * 0.8;
+      
+      if (selectedText.length > 2 && selectedText.length < 500 && !isLargeSelection) {
+        const selectionPosition = { from, to };
+        // Show buttons for reasonable selections
+        showCommentButton(selectedText, buttonPosition, selectionPosition);
+        showImproveButton(selectedText, buttonPosition, selectionPosition);
+      } else {
+        // Dismiss buttons for large or inappropriate selections
+        dismissCommentButton();
+        dismissImproveButton();
+      }
+    } catch (error) {
+      // If there's an error getting positions, dismiss buttons
+      console.warn('Error getting selection positions:', error);
+      dismissCommentButton();
+      dismissImproveButton();
+    }
   };
 
   document.addEventListener('selectionchange', handleSelectionChange);
   return () => document.removeEventListener('selectionchange', handleSelectionChange);
-}, [user, documentId, showCommentButton, showImproveButton, dismissCommentButton, dismissImproveButton]);
+}, [user, documentId, isSelectingAll, showCommentButton, showImproveButton, dismissCommentButton, dismissImproveButton]);
 
 console.log('Selection positions:', {
   from: improveButtonState.selection.from,
@@ -1466,8 +1571,26 @@ const handleDescribeClick = async (imageUrl: string) => {
           </div>
         </div>
         <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-4 flex-1">
-            <button
+          <div className="flex items-center space-x-1">
+           
+            {onToggleSidebar && (
+              <button
+                onClick={onToggleSidebar}
+                className={`p-2 rounded transition-colors ${
+                  darkMode
+                    ? "text-gray-300 hover:text-white hover:bg-gray-700"
+                    : "text-gray-600 hover:text-gray-800 hover:bg-gray-100"
+                }`}
+                title={isDocumentSidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
+              >
+                {isDocumentSidebarOpen ? (
+                  <PanelLeftClose className="w-5 h-5" />
+                ) : (
+                  <PanelLeft className="w-5 h-5" />
+                )}
+              </button>
+            )}
+             <button
               onClick={() => router.push("/dashboard")}
               className={`p-2 rounded transition-colors ${
                 darkMode
@@ -1476,7 +1599,7 @@ const handleDescribeClick = async (imageUrl: string) => {
               }`}
               title="Back to Dashboard"
             >
-              <ArrowLeft className="w-5 h-5" />
+              <LayoutDashboard className="w-5 h-5" />
             </button>
             <input
               ref={titleRef}
@@ -1492,7 +1615,7 @@ const handleDescribeClick = async (imageUrl: string) => {
                   }
                 });
               }}
-              className={`text-xl font-semibold border-none outline-none rounded px-2 py-1 flex-1 max-w-md ${
+              className={`text-xl font-semibold border-none outline-none rounded px-2 py-1 flex-1 max-w-sm ${
                 darkMode
                   ? "bg-gray-800 text-white focus:bg-gray-700"
                   : "bg-transparent text-gray-800 focus:bg-gray-50"
@@ -1500,7 +1623,7 @@ const handleDescribeClick = async (imageUrl: string) => {
               placeholder="Document title..."
             />
             <div
-              className={`flex items-center space-x-2 text-sm ${
+              className={`flex items-center pr-2 space-x-2 text-sm ${
                 darkMode ? "text-gray-400" : "text-gray-500"
               }`}
             >
@@ -1508,7 +1631,7 @@ const handleDescribeClick = async (imageUrl: string) => {
               <span>{getSaveStatusText()}</span>
             </div>
           </div>
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center space-x-1">
             <div className="relative" ref={themePickerRef}>
               <button
                 onClick={() => setShowThemePicker(!showThemePicker)}
@@ -1531,7 +1654,7 @@ const handleDescribeClick = async (imageUrl: string) => {
                 >
                   <div className="p-2">
                     <button
-                      onClick={toggleDarkMode}
+                      onClick={handleToggleDarkMode}
                       className={`flex items-center w-full px-3 py-2 text-sm rounded ${
                         darkMode
                           ? "hover:bg-gray-700 text-gray-300"
@@ -1627,7 +1750,7 @@ const handleDescribeClick = async (imageUrl: string) => {
                 {isCompiling ? "Compiling..." : "Compile"}
               </button>
             )}
-            <button
+            {/* <button
               onClick={toggleAutoCompile}
               className={`flex items-center px-3 py-2 text-sm rounded-lg transition-colors ${
                 autoCompile
@@ -1648,7 +1771,7 @@ const handleDescribeClick = async (imageUrl: string) => {
                 }`}
               ></div>
               Auto
-            </button>
+            </button> */}
             <button
               onClick={handleCopy}
               className={`flex items-center px-3 py-2 text-sm rounded-lg transition-colors ${
@@ -1684,7 +1807,7 @@ const handleDescribeClick = async (imageUrl: string) => {
               ) : (
                 <Maximize className="w-4 h-4 mr-2" />
               )}
-              {isFullScreen ? "Exit Fullscreen" : "Fullscreen"}
+              {isFullScreen ? "Exit Fullscreen" : "Full"}
             </button>
           </div>
         </div>
@@ -2006,6 +2129,21 @@ const handleDescribeClick = async (imageUrl: string) => {
           word-wrap: break-word !important;
           overflow-wrap: break-word !important;
         }
+
+        // /* Fix line number ordering bug - prevent 9, 99, 999 appearing before line 1 */
+        // .cm-lineNumbers {
+        //   font-variant-numeric: tabular-nums !important;
+        //   text-align: right !important;
+        //   direction: ltr !important;
+        //   unicode-bidi: isolate !important;
+        // }
+        
+        // .cm-lineNumbers .cm-gutterElement {
+        //   text-align: right !important;
+        //   direction: ltr !important;
+        //   unicode-bidi: isolate !important;
+        //   min-width: 100% !important;
+        // }
 
         /* Comment sidebar layout adjustments */
         .pr-80 {

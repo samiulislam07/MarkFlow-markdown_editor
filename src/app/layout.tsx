@@ -2,7 +2,9 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { ClerkProvider } from "@clerk/nextjs";
+import ConditionalNavbar from "./components/ConditionalNavbar";
 import { Toaster } from "sonner";
+import ConditionalLayout from "./components/ConditionalLayout";
 
 const geist = Geist({
   variable: "--font-geist-sans",
@@ -55,7 +57,10 @@ export default function RootLayout({
           />
         </head>
         <body className={`${geist.variable} ${geistMono.variable} antialiased`}>
-          {children}
+          <ConditionalNavbar />
+          <ConditionalLayout>
+            {children}
+          </ConditionalLayout>
           <Toaster position="top-center" richColors />
         </body>
       </html>
