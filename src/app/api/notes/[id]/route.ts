@@ -10,9 +10,9 @@ import Tag from '@/lib/mongodb/models/Tag';
 export const dynamic = 'force-dynamic';
 
 // GET - Fetch a specific note
-export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(request: NextRequest, { params }: { params: any}) {
   try {
-    const { id } = params;
+    const { id } = await params;
     const { userId } = await auth();
     if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -53,9 +53,9 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
 }
 
 // PUT - Update a specific note
-export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
+export async function PUT(request: NextRequest, { params }: { params: any}) {
   try {
-    const { id } = params;
+    const { id } = await params;
     const { userId } = await auth();
     if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -120,7 +120,7 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
 }
 
 // DELETE - Delete a specific note (Hard Delete)
-export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(request: NextRequest, { params }: { params: any }) {
   try {
     const { userId } = await auth();
     if (!userId) {
@@ -128,7 +128,7 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
     }
 
     await connectToDatabase();
-    const { id } = params;
+    const { id } = await params;
 
     const note = await Note.findById(id);
     if (!note) {

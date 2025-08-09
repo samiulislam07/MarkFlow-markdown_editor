@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { SignedIn, SignedOut, UserButton } from "@clerk/nextjs";
 import Link from "next/link";
+import GuestLoginButton from "@/components/ui/GuestLoginButton";
 
 export default function Home() {
   const [currentFeature, setCurrentFeature] = useState(0);
@@ -128,6 +129,7 @@ export default function Home() {
               >
                 Pricing
               </Link>
+              <GuestLoginButton />
               <Link
                 href="/sign-in"
                 className="bg-white/10 backdrop-blur-sm text-white px-4 py-2 rounded-lg hover:bg-white/20 transition-all border border-white/20"
@@ -188,12 +190,14 @@ export default function Home() {
                 Start Creating Now
                 <ArrowRight className="inline-block ml-2 w-5 h-5 group-hover:translate-x-1 transition-transform" />
               </Link>
-              <Link
-                href="/demo"
-                className="px-8 py-4 bg-white/10 backdrop-blur-sm text-white rounded-xl text-lg font-semibold hover:bg-white/20 transition-all border border-white/20"
-              >
-                Watch Demo
-              </Link>
+              <div className="flex flex-col sm:flex-row gap-4">
+                <Link
+                  href="/demo"
+                  className="px-8 py-4 bg-white/10 backdrop-blur-sm text-white rounded-xl text-lg font-semibold hover:bg-white/20 transition-all border border-white/20 text-center"
+                >
+                  Watch Demo
+                </Link>
+              </div>
             </div>
           </SignedOut>
 

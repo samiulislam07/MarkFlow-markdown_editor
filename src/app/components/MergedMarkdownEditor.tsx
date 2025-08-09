@@ -1,4 +1,10 @@
 'use client';
+declare global {
+  interface Window {
+    SpeechRecognition?: any;
+    webkitSpeechRecognition?: any;
+  }
+}
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useUser } from '@clerk/nextjs';
 import { useRouter } from 'next/navigation';
@@ -7,7 +13,15 @@ import {
   Copy, Download, Eye, Maximize, Minimize, Save,
   ArrowLeft, Check, AlertCircle, Loader2, Edit3,
   LucideIcon, Moon, Sun, Palette, MessageSquare, Play,
-  Table, Hash, Strikethrough, Subscript, Superscript
+  Table, Hash, Strikethrough, Subscript, Superscript,
+  Wand,
+  ImageIcon,
+  MicIcon,
+  X,
+  CheckCircle,
+  RefreshCw,
+  MicOff,
+  Mic
 } from 'lucide-react';
 
 import { EditorState, StateField, StateEffect } from '@codemirror/state';
@@ -30,6 +44,9 @@ import * as Y from 'yjs';
 import { yCollab, yUndoManagerKeymap } from 'y-codemirror.next';
 import YPartyKitProvider from 'y-partykit/provider';
 import { nanoid } from 'nanoid';
+//changes
+import { useLLMImprove } from '@/hooks/useLLMImprove';
+import { useImproveSelection } from '@/hooks/useImproveSelection';
 
 // --- ENHANCED MARKDOWN PARSING IMPORTS ---
 import { unified } from 'unified';
@@ -126,6 +143,20 @@ const MergedMarkdownEditor: React.FC<MarkdownEditorProps> = ({
   const [isCommentSidebarOpen, setIsCommentSidebarOpen] = useState<boolean>(false);
   const refreshDecorations = StateEffect.define<{ ydoc: Y.Doc; activeId: string | null }>();
 
+
+  // --- IMPROVE FEATURE STATE ---
+  const [improveMode, setImproveMode] = useState(false);
+  const [improvedText, setImprovedText] = useState<string>("");
+  const [isImproving, setIsImproving] = useState(false);
+  const [showImprovePopup, setShowImprovePopup] = useState(false);
+
+  // --- VOICE FEATURE STATE ---
+  const [listening, setListening] = useState(false);
+  const [voiceProcessing, setVoiceProcessing] = useState(false);
+  const [voiceMarkdown, setVoiceMarkdown] = useState("");
+  const [showVoicePopup, setShowVoicePopup] = useState(false);
+
+
   const editorRef = useRef<HTMLDivElement>(null);
   const editorViewRef = useRef<EditorView | null>(null);
   const previewRef = useRef<HTMLDivElement>(null);
@@ -133,6 +164,17 @@ const MergedMarkdownEditor: React.FC<MarkdownEditorProps> = ({
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const themePickerRef = useRef<HTMLDivElement>(null);
   const commentWebSocketRef = useRef<WebSocket | null>(null);
+  const recognitionRef = useRef<any>(null);
+
+  const {
+    improveButtonState,
+    showImproveButton,
+    dismissImproveButton,
+    replaceSelectedText,
+  } = useImproveSelection();
+
+  const [processing, setProcessing] = useState(false);
+
 
   const { commentButtonState, showCommentButton, dismissCommentButton } = useCommentSelection();
   const [activeCommentId, setActiveCommentId] = useState<string | null>(null);
@@ -877,6 +919,484 @@ const md = new MarkdownIt({
     </button>
   );
 
+  const improve = useLLMImprove();
+  
+  
+  const handleImproveText = async () => {
+    setIsImproving(true);
+    setShowImprovePopup(true);
+    try {
+      const result = await improve(improveButtonState.selectedText);
+      setImprovedText(result);
+    } catch (error) {
+      console.error("Error improving text:", error);
+      setImprovedText("Error improving text. Please try again.");
+    } finally {
+      setIsImproving(false);
+    }
+  };
+  const handleReplaceImprovedText = () => {
+    if (editorViewRef.current) {
+      const { from, to } = improveButtonState.selection;
+      editorViewRef.current.dispatch({
+        changes: { from, to, insert: improvedText },
+        selection: { anchor: from + improvedText.length }
+      });
+      
+      doc.transact(() => {
+        const ytext = doc.getText("codemirror");
+        ytext.delete(from, to - from);
+        ytext.insert(from, improvedText);
+      });
+    }
+    setShowImprovePopup(false);
+    dismissImproveButton();
+  };
+
+  const handleRegenerateImprovedText = async () => {
+    setIsImproving(true);
+    try {
+      const result = await improve(improveButtonState.selectedText);
+      setImprovedText(result);
+    } catch (error) {
+      console.error("Error improving text:", error);
+      setImprovedText("Error improving text. Please try again.");
+    } finally {
+      setIsImproving(false);
+    }
+  };
+
+const ImproveButton = ({
+  isVisible,
+  position,
+  onClick,
+  onDismiss,
+}: {
+  isVisible: boolean;
+  position: { x: number; y: number };
+  onClick: () => void;
+  onDismiss: () => void;
+}) => {
+  if (!isVisible) return null;
+
+  return (
+    <div
+      className="fixed z-50 transition-all"
+      style={{
+        left: `${position.x}px`,
+        top: `${position.y}px`,
+      }}
+    >
+      <div className={`flex items-center rounded-md shadow-lg border ${
+        darkMode ? "bg-gray-800 border-gray-700" : "bg-white border-gray-200"
+      }`}>
+        <button
+          onClick={onClick}
+          className={`px-3 py-1.5 text-sm font-medium rounded-l-md flex items-center ${
+            darkMode 
+              ? "bg-blue-600 hover:bg-blue-700 text-white" 
+              : "bg-blue-500 hover:bg-blue-600 text-white"
+          }`}
+        >
+          <Wand className="w-4 h-4 mr-1" />
+          Improve
+        </button>
+        <button
+          onClick={onDismiss}
+          className={`px-2 py-1.5 ${
+            darkMode 
+              ? "text-gray-300 hover:text-gray-100" 
+              : "text-gray-500 hover:text-gray-700"
+          }`}
+        >
+          ×
+        </button>
+      </div>
+    </div>
+  );
+};
+
+useEffect(() => {
+  const handleSelectionChange = () => {
+    if (!editorRef.current || !editorViewRef.current || !user || !documentId) return;
+    
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed) {
+      dismissCommentButton();
+      dismissImproveButton();
+      return;
+    }
+
+    const selectedText = selection.toString().trim();
+    if (selectedText.length === 0) return;
+
+    // Get the position of the selection
+    const range = selection.getRangeAt(0);
+    const rect = range.getBoundingClientRect();
+    
+    const buttonPosition = {
+      x: rect.right + window.scrollX + 10,
+      y: rect.top + window.scrollY - 40
+    };
+
+    // Get the absolute positions within the editor
+    const editor = editorViewRef.current;
+    const doc = editor.state.doc;
+    const from = editor.posAtDOM(range.startContainer) + range.startOffset;
+    const to = editor.posAtDOM(range.endContainer) + range.endOffset;
+
+    const selectionPosition = { from, to };
+
+    // Always update both buttons with selection info
+    showCommentButton(selectedText, buttonPosition, selectionPosition);
+    showImproveButton(selectedText, buttonPosition, selectionPosition);
+  };
+
+  document.addEventListener('selectionchange', handleSelectionChange);
+  return () => document.removeEventListener('selectionchange', handleSelectionChange);
+}, [user, documentId, showCommentButton, showImproveButton, dismissCommentButton, dismissImproveButton]);
+
+console.log('Selection positions:', {
+  from: improveButtonState.selection.from,
+  to: improveButtonState.selection.to,
+  selectedText: improveButtonState.selectedText,
+  editorText: editorViewRef.current?.state.doc.toString().slice(
+    improveButtonState.selection.from,
+    improveButtonState.selection.to
+  )
+});
+
+// const handleVoiceInput = async () => {
+//   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+//   if (!SpeechRecognition) {
+//     alert("Speech recognition is not supported in this browser.");
+//     return;
+//   }
+
+//   const recognition = new SpeechRecognition();
+//   recognition.lang = 'en-US';
+//   recognition.interimResults = false;
+//   recognition.continuous = true;
+//   recognition.maxAlternatives = 1;
+
+//   setListening(true);
+
+//   recognition.onresult = async (event: any) => {
+//     const transcript = event.results[0][0].transcript;
+//     setListening(false);
+//     setProcessing(true);
+
+//     try {
+//       const res = await fetch('/api/voice-to-md', {
+//         method: 'POST',
+//         headers: { 'Content-Type': 'application/json' },
+//         body: JSON.stringify({ text: transcript })
+//       });
+
+//       if (!res.ok) throw new Error('Failed to fetch from Gemma3n');
+
+//       const { markdown } = await res.json();
+
+//       if (editorViewRef.current) {
+//         const view = editorViewRef.current;
+//         view.dispatch({
+//           changes: {
+//             from: view.state.selection.main.head,
+//             insert: markdown
+//           }
+//         });
+//         view.focus();
+//       }
+//     } catch (err) {
+//       console.error('Error handling voice input:', err);
+//     }finally{
+//       setProcessing(false);
+//       setListening(false);
+//     }
+//   };
+
+//   // recognition.onerror = (event: SpeechRecognitionError) => {
+//   //   console.error('Speech recognition error:', event.error);
+//   //   setListening(false);
+//   //   setProcessing(false);
+//   // };
+
+//   recognition.start();
+// };
+
+const handleVoiceInput = () => {
+    setShowVoicePopup(true);
+  };
+
+const startVoiceRecording = () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop(); // Clean up any existing instance
+      }
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert("Speech recognition is not supported in this browser.");
+      return;
+    }
+
+    recognitionRef.current = new SpeechRecognition();
+    recognitionRef.current.lang = 'en-US';
+    recognitionRef.current.interimResults = false;
+    recognitionRef.current.continuous = false;
+    recognitionRef.current.maxAlternatives = 1;
+
+    setListening(true);
+    setVoiceMarkdown("");
+    recognitionRef.current.onresult = async (event: any) => {
+      const transcript = event.results[0][0].transcript;
+      setListening(false);
+      setVoiceProcessing(true);
+
+      try {
+        const res = await fetch('/api/voice-to-md', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: transcript })
+        });
+
+        if (!res.ok) throw new Error('Failed to fetch from API');
+
+        const { markdown } = await res.json();
+        setVoiceMarkdown(markdown);
+      } catch (err) {
+        console.error('Error handling voice input:', err);
+        setVoiceMarkdown("Error processing voice input. Please try again.");
+      } finally {
+        setVoiceProcessing(false);
+      }
+    };
+
+    recognitionRef.current.onerror = (event: any) => {
+      console.error('Speech recognition error:', event.error);
+      setListening(false);
+      setVoiceProcessing(false);
+      setVoiceMarkdown("Error: " + event.error);
+    };
+
+    recognitionRef.current.start();
+  };
+
+  const stopVoiceRecording = () => {
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+      setListening(false);
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+        recognitionRef.current = null;
+      }
+    };
+  }, []);
+
+  const handlePlaceVoiceText = () => {
+    if (voiceMarkdown && editorViewRef.current) {
+      const view = editorViewRef.current;
+      const pos = view.state.selection.main.head;
+      view.dispatch({
+        changes: { from: pos, insert: voiceMarkdown + " " },
+        selection: { anchor: pos + voiceMarkdown.length + 1 }
+      });
+    }
+    setShowVoicePopup(false);
+    setVoiceMarkdown("");
+  };
+
+  const handleRecordAgain = () => {
+    setVoiceMarkdown("");
+    setListening(false);
+    setVoiceProcessing(false);
+  };
+
+
+  const ImprovePopup = React.memo(() => {
+    if (!showImprovePopup) return null;
+
+    return (
+      <div className={`fixed z-50 top-1/2 right-2 transform -translate-y-1/2 w-80 p-4 rounded-lg shadow-xl border ${
+        darkMode ? "bg-gray-800 border-gray-700" : "bg-white border-gray-200"
+      }`}>
+        <div className="flex justify-between items-center mb-3">
+          <h3 className="font-medium flex items-center">
+            <Wand className="w-4 h-4 mr-2" />
+            Improved Text
+          </h3>
+          <button 
+            onClick={() => setShowImprovePopup(false)}
+            className={`p-1 rounded-full ${
+              darkMode ? "hover:bg-gray-700" : "hover:bg-gray-100"
+            }`}
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        
+        {isImproving ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="w-6 h-6 animate-spin" />
+          </div>
+        ) : (
+          <>
+            <div className={`p-3 mb-4 rounded ${
+              darkMode ? "bg-gray-700" : "bg-gray-100"
+            }`}>
+              <h4 className="text-xs font-medium mb-1">Original:</h4>
+              <p className="text-sm mb-3">{improveButtonState.selectedText}</p>
+              <h4 className="text-xs font-medium mb-1">Improved:</h4>
+              <p className="text-sm">{improvedText}</p>
+            </div>
+            
+            <div className="flex space-x-2">
+              <button
+                onClick={handleReplaceImprovedText}
+                className={`flex-1 flex items-center justify-center py-2 px-3 rounded ${
+                  darkMode 
+                    ? "bg-blue-600 hover:bg-blue-700 text-white" 
+                    : "bg-blue-500 hover:bg-blue-600 text-white"
+                }`}
+              >
+                <CheckCircle className="w-4 h-4 mr-2" />
+                Replace
+              </button>
+              <button
+                onClick={handleRegenerateImprovedText}
+                className={`flex-1 flex items-center justify-center py-2 px-3 rounded ${
+                  darkMode 
+                    ? "bg-gray-700 hover:bg-gray-600 text-gray-300" 
+                    : "bg-gray-200 hover:bg-gray-300 text-gray-700"
+                }`}
+              >
+                <RefreshCw className="w-4 h-4 mr-2" />
+                Regenerate
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    );
+  });
+
+  const VoicePopup = React.memo(() => {
+    if (!showVoicePopup) return null;
+
+    return (
+      <div className={`fixed z-50 top-1/2 right-4 transform -translate-y-1/2 w-80 p-4 rounded-lg shadow-xl border ${
+        darkMode ? "bg-gray-800 border-gray-700" : "bg-white border-gray-200"
+      }`}>
+        <div className="flex justify-between items-center mb-3">
+          <h3 className="font-medium flex items-center">
+            <MicIcon className="w-4 h-4 mr-2" />
+            Voice to Markdown
+          </h3>
+          <button 
+            onClick={() => {
+              setShowVoicePopup(false);
+              stopVoiceRecording();
+            }}
+            className={`p-1 rounded-full ${
+              darkMode ? "hover:bg-gray-700" : "hover:bg-gray-100"
+            }`}
+          >
+            
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        
+        {!voiceMarkdown ? (
+          <>
+            <div className="mb-4 text-center">
+              {listening ? (
+                <div className="flex flex-col items-center">
+                  <div className="w-16 h-16 bg-red-100 dark:bg-red-900 rounded-full flex items-center justify-center mb-2">
+                    <button><MicOff 
+                      className="w-8 h-8 text-red-600 dark:text-red-300 cursor-pointer" 
+                      onClick={stopVoiceRecording}
+                    />
+                    </button>
+                  </div>
+                  <p className="text-sm text-red-600 dark:text-red-300 animate-pulse">
+                    Listening... Click to stop
+                  </p>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center">
+                  <div className="w-16 h-16 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center mb-2">
+                    <button>
+                      <Mic 
+                      className="w-8 h-8 text-blue-600 dark:text-blue-300 cursor-pointer" 
+                      onClick={startVoiceRecording}
+                    />
+                    </button>
+                  </div>
+                  <p className="text-sm text-gray-600 dark:text-gray-300">
+                    {voiceProcessing ? "Processing..." : "Click to start recording"}
+                  </p>
+                </div>
+              )}
+            </div>
+          </>
+        ) : (
+          <>
+            <div className={`p-3 mb-4 rounded ${
+              darkMode ? "bg-gray-700" : "bg-gray-100"
+            }`}>
+              <h4 className="text-xs font-medium mb-1">Generated Markdown:</h4>
+              <pre className="text-sm whitespace-pre-wrap">{voiceMarkdown}</pre>
+            </div>
+            
+            <div className="flex space-x-2">
+              <button
+                onClick={handlePlaceVoiceText}
+                className={`flex-1 flex items-center justify-center py-2 px-3 rounded ${
+                  darkMode 
+                    ? "bg-blue-600 hover:bg-blue-700 text-white" 
+                    : "bg-blue-500 hover:bg-blue-600 text-white"
+                }`}
+              >
+                <CheckCircle className="w-4 h-4 mr-2" />
+                Place in Editor
+              </button>
+              <button
+                onClick={handleRecordAgain}
+                className={`flex-1 flex items-center justify-center py-2 px-3 rounded ${
+                  darkMode 
+                    ? "bg-gray-700 hover:bg-gray-600 text-gray-300" 
+                    : "bg-gray-200 hover:bg-gray-300 text-gray-700"
+                }`}
+              >
+                <RefreshCw className="w-4 h-4 mr-2" />
+                Record Again
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    );
+  });
+
+  ImprovePopup.displayName = "ImprovePopup";
+  VoicePopup.displayName = "VoicePopup";
+
+const handleDescribeClick = async (imageUrl: string) => {
+  const res = await fetch('/api/image-description', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ imageUrl }),
+  });
+
+  const data = await res.json();
+  console.log('Image Description:', data.description);
+  alert(`Image Description:\n\n${data.description}`);
+};
+
+
   return (
     <div
       className={`markflow-editor flex flex-col h-screen max-w-full overflow-hidden ${
@@ -1219,6 +1739,21 @@ const md = new MarkdownIt({
             icon={Superscript}
             label="Superscript"
           />
+           <EditorToolbarButton
+              onClick={() => setImproveMode(!improveMode)}
+              icon={Wand}
+              label={improveMode ? "Exit Improve Mode" : "Improve Text"}
+            />
+            <EditorToolbarButton
+              icon={MicIcon}
+              label="Voice Input"
+              onClick={handleVoiceInput}
+            />
+            <EditorToolbarButton
+              icon={ImageIcon}
+              label="Describe Image"
+              onClick={() => handleDescribeClick("https://audyvywtoxcbcnjttzji.supabase.co/storage/v1/object/public/uploads/uploads/Show%20of%20Power%20Baton.png")}
+            />
         </div>
       </div>
 
@@ -2076,11 +2611,46 @@ const md = new MarkdownIt({
         }
       `}</style>
 
-      <CommentButton
+      {/* {listening && (
+        <div className="text-blue-600 animate-pulse mt-2">🎙️ Listening...</div>
+      )}
+      {processing && (
+        <div className="text-green-600 animate-pulse mt-2">⚙️ Generating Markdown...</div>
+      )}
+      {improveMode && (
+        <span className={`flex items-center ${
+          darkMode ? 'text-blue-300' : 'text-blue-600'
+        }`}>
+          <Wand className="w-3 h-3 mr-1" />
+          Improve Mode
+        </span>
+      )} */}
+
+      <ImprovePopup />
+      <VoicePopup />
+
+      {/* <CommentButton
         isVisible={commentButtonState.isVisible}
         position={commentButtonState.position}
         onClick={() => setIsCommentSidebarOpen(true)}
-      />
+      /> */}
+
+      {!improveMode && commentButtonState.isVisible && (
+        <CommentButton
+          isVisible={commentButtonState.isVisible}
+          position={commentButtonState.position}
+          onClick={() => setIsCommentSidebarOpen(true)}
+        />
+      )}
+
+      {improveMode && improveButtonState.isVisible && (
+        <ImproveButton
+          isVisible={improveButtonState.isVisible}
+          position={improveButtonState.position}
+          onClick={handleImproveText}
+          onDismiss={dismissImproveButton}
+        />
+      )}
 
       <CommentSidebar
         isOpen={isCommentSidebarOpen}

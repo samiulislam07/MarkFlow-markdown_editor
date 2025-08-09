@@ -1,3 +1,4 @@
+
 import { auth, currentUser } from '@clerk/nextjs/server'
 import { connectToDatabase } from '@/lib/mongodb/connect'
 import User from '@/lib/mongodb/models/User'
@@ -153,14 +154,6 @@ export default async function WorkspacePage({ params }: WorkspacePageProps) {
                   >
                     <Plus className="w-5 h-5 mr-2" />
                     New Document
-                  </Link>
-                )}
-                {userRole === 'owner' && (
-                  <Link
-                    href={`/workspace/${workspace._id}/settings`}
-                    className="p-2 text-gray-400 hover:text-gray-600 rounded-lg"
-                  >
-                    <Settings className="w-5 h-5" />
                   </Link>
                 )}
               </div>

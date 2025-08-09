@@ -1,4 +1,4 @@
-// "use client"
+
 import { auth, currentUser } from '@clerk/nextjs/server'
 import mongoose from 'mongoose'
 import { connectToDatabase } from '@/lib/mongodb/connect'
@@ -13,6 +13,7 @@ import WorkspaceChat from '@/lib/mongodb/models/WorkspaceChat'
 //import Workspace from '@/lib/mongodb/models/Workspace' // ✅ needed so it's registered
 import ChatMessage from '@/lib/mongodb/models/ChatMessage'
 //import User from '@/lib/mongodb/models/User'
+import DashboardWorkspaceList from '@/app/components/DashboardWorkspaceList';
 
 interface DashboardNote {
   _id: string
@@ -253,6 +254,15 @@ export default async function Dashboard() {
 
     const workspaceIds = workspaces.map(w => w._id)
 
+    // Convert dbUser to a plain object before passing to the client component
+    const plainDbUser = {
+      _id: dbUser._id.toString(),
+      name: dbUser.name,
+      email: dbUser.email,
+      avatar: dbUser.avatar,
+      username: dbUser.username
+    }
+
     // Get user's notes from all accessible workspaces
     const notesRaw = await Note.find({
       workspace: { $in: workspaceIds },
@@ -377,83 +387,7 @@ export default async function Dashboard() {
 
             <div className="p-6">
               {workspaces.length > 0 ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {workspaces.map((workspace) => (
-                    <Link
-                      key={workspace._id}
-                      href={`/workspace/${workspace._id}`}
-                      className="block bg-gray-50 rounded-lg p-4 hover:bg-gray-100 transition-colors border border-gray-200"
-                    >
-                      <div className="flex items-start justify-between mb-3">
-                        <div className="flex items-center">
-                          {workspace.isPersonal ? (
-                            <UserIcon className="w-5 h-5 text-blue-600 mr-2" />
-                          ) : (
-                            <Users className="w-5 h-5 text-green-600 mr-2" />
-                          )}
-                          <h3 className="font-medium text-gray-900 truncate">{workspace.name}</h3>
-                        </div>
-                        {workspace.isPersonal && (
-                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                            Personal
-                          </span>
-                        )}
-                      </div>
-                      
-                      {workspace.description && (
-                        <p className="text-sm text-gray-600 mb-3 line-clamp-2">{workspace.description}</p>
-                      )}
-                      
-                      <div className="flex items-center justify-between text-xs text-gray-500">
-                        <div className="flex items-center">
-                          <span>{workspace.collaborators.length + 1} member{workspace.collaborators.length !== 0 ? 's' : ''}</span>
-                        </div>
-                        <div className="flex items-center">
-                          <Clock className="w-3 h-3 mr-1" />
-                          <span>
-                            {new Date(workspace.updatedAt).toLocaleDateString()}
-                          </span>
-                        </div>
-                      </div>
-                      
-                      {workspace.collaborators.length > 0 && (
-                        <div className="flex items-center mt-3 pt-3 border-t border-gray-200">
-                          <div className="flex -space-x-2 overflow-hidden">
-                            {workspace.collaborators.slice(0, 3).map((collab, index) => (
-                              <div
-                                key={collab.user._id}
-                                className="inline-block h-6 w-6 rounded-full ring-2 ring-white"
-                                title={`${collab.user.name} (${collab.role})`}
-                              >
-                                {collab.user.avatar ? (
-                                  <img
-                                    className="h-6 w-6 rounded-full"
-                                    src={collab.user.avatar}
-                                    alt={collab.user.name}
-                                  />
-                                ) : (
-                                  <div className="h-6 w-6 rounded-full bg-gray-300 flex items-center justify-center">
-                                    <span className="text-xs font-medium text-gray-600">
-                                      {collab.user.name.charAt(0).toUpperCase()}
-                                    </span>
-                                  </div>
-                                )}
-                              </div>
-                            ))}
-                            {workspace.collaborators.length > 3 && (
-                              <div className=" h-6 w-6 rounded-full ring-2 ring-white bg-gray-200 flex items-center justify-center">
-                                <span className="text-xs font-medium text-gray-600">
-                                  +{workspace.collaborators.length - 3}
-                                </span>
-                              </div>
-                            )}
-                          </div>
-                          <span className="ml-2 text-xs text-gray-500">collaborating</span>
-                        </div>
-                      )}
-                    </Link>
-                  ))}
-                </div>
+                <DashboardWorkspaceList initialWorkspaces={workspaces} currentUser={plainDbUser} />
               ) : (
                 <div className="text-center py-8">
                   <FolderOpen className="w-12 h-12 text-gray-400 mx-auto mb-4" />

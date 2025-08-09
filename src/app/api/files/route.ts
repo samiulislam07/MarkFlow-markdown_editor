@@ -133,7 +133,7 @@ export async function POST(request: NextRequest) {
     const { data: publicData } = supabase.storage.from('uploads').getPublicUrl(filePath);
     const storageUrl = publicData?.publicUrl;
 
-    const newFile = new (require('@/lib/mongodb/models/File').default)({
+    const newFile = new File({
       fileName: file.name, // Keep the original display name
       storageUrl,
       filePath, // Save the unique path

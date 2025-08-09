@@ -2,10 +2,6 @@
 
 ```
 MarkFlow-markdown_editor/
-├── .clerk/                          # Clerk authentication configuration
-├── .git/                            # Git version control
-├── .next/                           # Next.js build output
-├── .partykit/                       # PartyKit configuration and cache
 ├── node_modules/                    # Node.js dependencies
 ├── party/                           # PartyKit server files
 │   ├── chat.ts                      # Chat server implementation
@@ -20,6 +16,8 @@ MarkFlow-markdown_editor/
 │   └── window.svg
 ├── scripts/                         # Utility scripts
 │   └── seed-database.js             # Database seeding script
+├── scripts/                         # Utility scripts
+│   └── seed-database.js             # Database seeding script
 ├── src/                             # Source code
 │   ├── __pycache__/                 # Python cache files
 │   ├── agent.py                     # AI agent implementation
@@ -28,7 +26,9 @@ MarkFlow-markdown_editor/
 │   ├── config/                      # Configuration files
 │   │   └── dbConfig.ts              # Database configuration
 │   ├── hooks/                       # Custom React hooks
-│   │   └── useCommentSelection.ts   # Comment selection hook
+│   │   ├── useCommentSelection.ts   # Comment selection hook
+│   │   ├── useImproveSelection.ts   # Selection hook for LLM improvement
+│   │   └── useLLMImprove.ts         # Hook to call improve API with context
 │   ├── lib/                         # Library and utility functions
 │   │   ├── mongodb/                 # MongoDB related files
 │   │   │   ├── connect.ts           # Database connection
@@ -89,8 +89,18 @@ MarkFlow-markdown_editor/
 │       │   │   │   └── route.ts
 │       │   │   └── route.ts         # Comments list
 │       │   ├── files/               # File management API
-│       │   │   └── route.ts
+│       │   │   ├── [id]/            # Individual file operations
+│       │   │   │   └── route.ts
+│       │   │   └── route.ts         # Files list/create
 │       │   ├── folders/             # Folder management API
+│       │   │   ├── [id]/            # Individual folder operations
+│       │   │   │   └── route.ts
+│       │   │   └── route.ts         # Folders list/create
+│       │   ├── guest-login/         # Guest login session
+│       │   │   └── route.ts
+│       │   ├── image-description/    # Describe images with AI
+│       │   │   └── route.ts
+│       │   ├── improve/              # LLM-based prose/code improvement
 │       │   │   └── route.ts
 │       │   ├── invitations/         # Invitation API
 │       │   │   └── accept/          # Accept invitation
@@ -99,10 +109,13 @@ MarkFlow-markdown_editor/
 │       │   │   ├── [id]/            # Individual note
 │       │   │   │   └── route.ts
 │       │   │   └── route.ts         # Notes list
-│       │   ├── session/             # Session API
+│       │   ├── session/             # Session API helpers
 │       │   │   └── routes.ts
 │       │   ├── tags/                # Tags API
 │       │   │   └── route.ts
+│       │   ├── voice-to-md/         # Transcribe voice to markdown
+│       │   │   └── route.ts
+│       │   ├── streamHelper.ts      # Helper for streaming responses
 │       │   ├── webhooks/            # Webhook handlers
 │       │   │   └── clerk/           # Clerk webhooks
 │       │   │       └── route.ts
@@ -113,17 +126,17 @@ MarkFlow-markdown_editor/
 │       │   │   └── route.ts         # Workspaces list
 │       │   └── nowork.md            # API documentation placeholder
 │       ├── components/              # React components
-│       │   ├── editor/              # Editor-specific components (mostly empty)
-│       │   │   ├── hooks/           # Editor hooks (empty files)
+│       │   ├── editor/              # Editor-specific components
+│       │   │   ├── hooks/           # Editor hooks
 │       │   │   │   ├── useAutoSave.ts # Auto-save functionality
 │       │   │   │   ├── useWorkspaces.ts # Workspace management
 │       │   │   │   └── useYDoc.ts   # Yjs document management
-│       │   │   ├── EditorPane.tsx   # Editor pane component (empty)
-│       │   │   ├── index.ts         # Editor exports (empty)
-│       │   │   ├── MarkdownEditorShell.tsx # Editor shell component (empty)
-│       │   │   ├── PreviewPane.tsx  # Preview pane component (empty)
-│       │   │   ├── Sidebar.tsx      # Editor sidebar (empty)
-│       │   │   └── Toolbar.tsx      # Editor toolbar (empty)
+│       │   │   ├── EditorPane.tsx   # Editor pane component
+│       │   │   ├── index.ts         # Editor exports
+│       │   │   ├── MarkdownEditorShell.tsx # Editor shell component
+│       │   │   ├── PreviewPane.tsx  # Preview pane component
+│       │   │   ├── Sidebar.tsx      # Editor sidebar
+│       │   │   └── Toolbar.tsx      # Editor toolbar
 │       │   ├── ChatBox.tsx          # Chat interface component
 │       │   ├── ChatLauncher.tsx     # Chat launcher component
 │       │   ├── ChatSidebar.tsx      # Chat sidebar component
@@ -151,6 +164,7 @@ MarkFlow-markdown_editor/
 │       ├── editor/                  # Editor pages
 │       │   ├── [id]/                # Individual editor
 │       │   │   └── page.tsx
+│       │   ├── EditorPageClient.tsx # Client component for editor page
 │       │   └── page.tsx             # Editor index page
 │       ├── invite/                  # Invitation pages
 │       │   └── [token]/             # Invitation token page
@@ -173,13 +187,12 @@ MarkFlow-markdown_editor/
 │       ├── globals.css              # Global styles
 │       ├── layout.tsx               # Root layout component
 │       └── page.tsx                 # Home page
-├── .env                             # Environment variables
-├── .env.local                       # Local environment variables
 ├── .gitignore                       # Git ignore rules
 ├── COLLABORATION_SETUP.md           # Collaboration setup guide
 ├── components.json                  # UI components configuration
 ├── eslint.config.mjs                # ESLint configuration
 ├── markflow-prd.md                  # Product requirements document
+├── next-env.d.ts                    # Next.js environment types
 ├── next-env.d.ts                    # Next.js environment types
 ├── next.config.ts                   # Next.js configuration
 ├── package-lock.json                # NPM lock file
@@ -202,7 +215,7 @@ MarkFlow-markdown_editor/
 - **MergedMarkdownEditor.tsx**: Main collaborative markdown editor with Yjs integration
 - **LatexRenderer.tsx**: LaTeX and math rendering component
 - **CommentButton.tsx & CommentSidebar.tsx**: Commenting system components
-- **Editor Components**: EditorPane, PreviewPane, Toolbar, and Sidebar components (currently empty placeholder files)
+- **Editor Components**: EditorPane, PreviewPane, Toolbar, and Sidebar components
 
 ### Collaboration
 - **PartyKit Integration**: Real-time collaboration using PartyKit
@@ -229,6 +242,7 @@ MarkFlow-markdown_editor/
 - **Clerk Integration**: User authentication and management
 - **User Service**: User-related business logic
 - **Email Service**: Email notifications and invitations
+- **Guest Login**: API route (`src/app/api/guest-login/route.ts`) and UI button (`src/components/ui/GuestLoginButton.tsx`)
 
 ### Database & Models
 - **MongoDB Integration**: Document database with Mongoose ODM
@@ -239,10 +253,13 @@ MarkFlow-markdown_editor/
 - **Agent System**: AI-powered features and assistance
 - **Task Handling**: Automated task processing
 - **Python Backend**: AI processing with Python scripts
+- **Image Description**: (`src/app/api/image-description/route.ts`)
+- **Voice to Markdown**: (`src/app/api/voice-to-md/route.ts`)
+- **Improve with LLM**: (`src/app/api/improve/route.ts`, hooks in `src/hooks/`)
 
 ### UI Components
 - **Shadcn/ui Components**: Avatar, Badge, Button, Dropdown Menu, Input, Skeleton
-- **Custom Components**: Tailored components for the application
+- **Custom Components**: Tailored components for the application, including guest login button
 
 ## Development Status
 
@@ -256,9 +273,7 @@ MarkFlow-markdown_editor/
 - API routes
 
 ### In Development/Empty Components
-- Editor sub-components (EditorPane, PreviewPane, Toolbar, Sidebar)
-- Editor hooks (useAutoSave, useWorkspaces, useYDoc)
-- Navigation components (Navbar, WorkspaceSidebar, EditorLayout)
+- Some editor sub-components and navigation elements may still be evolving
 - Simple agent implementation
 
 ## Technology Stack

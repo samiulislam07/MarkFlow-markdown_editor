@@ -1,8 +1,15 @@
 'use client';
 
 import { useState } from 'react';
-import { Users, UserPlus, MoreVertical, Shield, Eye, MessageSquare, Edit3 } from 'lucide-react';
+import { Users, UserPlus, MoreVertical, Shield, Eye, MessageSquare, Edit3, Trash2 } from 'lucide-react';
 import InvitationManager from './InvitationManager';
+import ConfirmationModal from './ConfirmationModal';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 interface Collaborator {
   user: {
@@ -36,6 +43,10 @@ export default function WorkspaceCollaborators({
   userRole
 }: WorkspaceCollaboratorsProps) {
   const [showInviteModal, setShowInviteModal] = useState(false);
+  const [collaboratorToRemove, setCollaboratorToRemove] = useState<Collaborator | null>(null);
+  const [isRemoving, setIsRemoving] = useState(false);
+  const [removeError, setRemoveError] = useState<string | null>(null);
+  const [localCollaborators, setLocalCollaborators] = useState<Collaborator[]>(collaborators);
 
   const getRoleIcon = (role: string) => {
     switch (role) {
@@ -76,6 +87,48 @@ export default function WorkspaceCollaborators({
     }
   };
 
+  const handleRemoveCollaborator = async () => {
+    if (!collaboratorToRemove) return;
+
+    setIsRemoving(true);
+    setRemoveError(null);
+
+    try {
+      const response = await fetch(`/api/workspaces/${workspaceId}/collaborators`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          collaboratorUserId: collaboratorToRemove.user._id,
+        }),
+      });
+
+      if (!response.ok) {
+        const contentType = response.headers.get('content-type');
+        
+        if (contentType && contentType.indexOf('application/json') !== -1) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'Failed to remove collaborator');
+        } else {
+          throw new Error('Authentication session may have expired. Please refresh and try again.');
+        }
+      }
+
+      // Remove collaborator from local state
+      setLocalCollaborators(current => 
+        current.filter(collab => collab.user._id !== collaboratorToRemove.user._id)
+      );
+      setCollaboratorToRemove(null);
+
+    } catch (err: any) {
+      console.error("Remove collaborator error:", err);
+      setRemoveError(err.message);
+    } finally {
+      setIsRemoving(false);
+    }
+  };
+
   return (
     <>
       <div className="bg-white rounded-lg shadow mb-8">
@@ -85,7 +138,7 @@ export default function WorkspaceCollaborators({
               <Users className="w-5 h-5 text-gray-400 mr-2" />
               <h2 className="text-lg font-medium text-gray-900">Team Members</h2>
               <span className="ml-2 inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
-                {collaborators.length + 1}
+                {localCollaborators.length + 1}
               </span>
             </div>
             {(userRole === 'owner' || userRole === 'editor') && (
@@ -132,7 +185,7 @@ export default function WorkspaceCollaborators({
             </div>
 
             {/* Collaborators */}
-            {collaborators.map((collaborator) => (
+            {localCollaborators.map((collaborator) => (
               <div key={collaborator.user._id} className="flex items-center justify-between">
                 <div className="flex items-center">
                   {collaborator.user.avatar ? (
@@ -162,15 +215,28 @@ export default function WorkspaceCollaborators({
                     <span className="ml-1 capitalize">{collaborator.role}</span>
                   </span>
                   {userRole === 'owner' && (
-                    <button className="p-1 text-gray-400 hover:text-gray-600 rounded">
-                      <MoreVertical className="w-4 h-4" />
-                    </button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button className="p-1 text-gray-400 hover:text-gray-600 rounded">
+                          <MoreVertical className="w-4 h-4" />
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-40">
+                        <DropdownMenuItem
+                          onClick={() => setCollaboratorToRemove(collaborator)}
+                          className="text-red-600 focus:text-red-600 focus:bg-red-50 cursor-pointer"
+                        >
+                          <Trash2 className="w-4 h-4 mr-2" />
+                          Remove
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   )}
                 </div>
               </div>
             ))}
 
-            {collaborators.length === 0 && (
+            {localCollaborators.length === 0 && (
               <div className="text-center py-6">
                 <Users className="w-8 h-8 text-gray-400 mx-auto mb-2" />
                 <p className="text-gray-500 text-sm">No collaborators yet</p>
@@ -194,6 +260,22 @@ export default function WorkspaceCollaborators({
         userRole={userRole}
         isOpen={showInviteModal}
         onClose={() => setShowInviteModal(false)}
+      />
+
+      {/* Remove Collaborator Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={!!collaboratorToRemove}
+        onClose={() => {
+          setCollaboratorToRemove(null);
+          setRemoveError(null);
+        }}
+        onConfirm={handleRemoveCollaborator}
+        title="Remove Collaborator"
+        message={`Are you sure you want to remove "${collaboratorToRemove?.user.name}" from this workspace? They will lose access to all documents and chat in this workspace.`}
+        confirmText="Yes, Remove"
+        isLoading={isRemoving}
+        isDestructive={true}
+        errorMessage={removeError}
       />
     </>
   );

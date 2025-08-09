@@ -288,7 +288,7 @@ export default function LatexRenderer({ content, className = '' }: LatexRenderer
           // Process lists - FIXED ENUMERATE WITH MATH SUPPORT
           processedContent = processedContent.replace(/\\begin\{itemize\}\s*([\s\S]*?)\s*\\end\{itemize\}/g, (match, content) => {
             // First process inline math within list items
-            let processedContent = content.replace(/\$([^$\r\n]*(?:\{[^}]*\}[^$\r\n]*)*)\$/g, (mathMatch: string, latex: string) => {
+            const processedContent = content.replace(/\$([^$\r\n]*(?:\{[^}]*\}[^$\r\n]*)*)\$/g, (mathMatch: string, latex: string) => {
               try {
                 const cleanLatex = latex.trim();
                 if (!cleanLatex) return mathMatch;
@@ -311,7 +311,7 @@ export default function LatexRenderer({ content, className = '' }: LatexRenderer
           
           processedContent = processedContent.replace(/\\begin\{enumerate\}\s*([\s\S]*?)\s*\\end\{enumerate\}/g, (match, content) => {
             // First process inline math within list items
-            let processedContent = content.replace(/\$([^$\r\n]*(?:\{[^}]*\}[^$\r\n]*)*)\$/g, (mathMatch: string, latex: string) => {
+            const processedContent = content.replace(/\$([^$\r\n]*(?:\{[^}]*\}[^$\r\n]*)*)\$/g, (mathMatch: string, latex: string) => {
               try {
                 const cleanLatex = latex.trim();
                 if (!cleanLatex) return mathMatch;

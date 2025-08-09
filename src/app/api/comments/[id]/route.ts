@@ -12,7 +12,9 @@ interface RouteParams {
 }
 
 // PUT - Update a specific comment
-export async function PUT(request: NextRequest, { params }: RouteParams) {
+export async function PUT(
+  request: NextRequest,
+  { params }: any) {
   try {
     const { userId } = await auth();
     if (!userId) {
@@ -21,9 +23,10 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
     await connectToDatabase();
 
-    const { id } = params;
+    const { id } =  params;
     const body = await request.json();
     const { content, isResolved } = body;
+
 
     const comment = await Comment.findById(id);
     if (!comment) {
@@ -67,7 +70,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 }
 
 // DELETE - Delete a specific comment
-export async function DELETE(request: NextRequest, { params }: RouteParams) {
+export async function DELETE(request: NextRequest, { params }: any) {
   try {
     const { userId } = await auth();
     if (!userId) {

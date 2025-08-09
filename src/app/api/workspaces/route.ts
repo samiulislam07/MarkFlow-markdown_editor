@@ -1,11 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
+import mongoose from 'mongoose'
 import { connectToDatabase } from '@/lib/mongodb/connect';
 import Workspace, { ICollaborator } from '@/lib/mongodb/models/Workspace';
 import User from '@/lib/mongodb/models/User';
 import { sendInvitationEmail } from '@/lib/services/emailService';
 import { createWorkspaceChat, syncChatParticipants } from '@/lib/services/chatService'
-import Chat from '@/lib/mongodb/models/WorkspaceChat'
+import Note from '@/lib/mongodb/models/Note'
+import Comment from '@/lib/mongodb/models/Comment'
+import Folder from '@/lib/mongodb/models/Folder'
+import File from '@/lib/mongodb/models/File'
+import Collaborator from '@/lib/mongodb/models/Collaborator'
+import WorkspaceChat from '@/lib/mongodb/models/WorkspaceChat'
 
 import crypto from 'crypto';
 
@@ -181,6 +187,82 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('Error creating workspace:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}
+
+// DELETE - Delete a workspace and all its associated data
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  const workspaceId = params.id;
+
+  // 1. Authentication and Authorization
+  try {
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    await connectToDatabase();
+
+    const user = await User.findOne({ clerkId: userId });
+    if (!user) {
+      return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    }
+
+    const workspace = await Workspace.findById(workspaceId);
+    if (!workspace) {
+      return NextResponse.json({ error: 'Workspace not found' }, { status: 404 });
+    }
+
+    // Crucially, verify that the current user is the owner
+    if (workspace.owner.toString() !== user._id.toString()) {
+      return NextResponse.json({ error: 'Forbidden: Only the owner can delete this workspace.' }, { status: 403 });
+    }
+
+    // 2. Cascading Delete within a Database Transaction
+    const session = await mongoose.startSession();
+    session.startTransaction();
+
+    try {
+      // Find all notes within the workspace to delete their associated comments
+      const notesInWorkspace = await Note.find({ workspace: workspaceId }).select('_id').session(session);
+      const noteIds = notesInWorkspace.map(n => n._id);
+      
+      // Delete all comments linked to the notes in this workspace
+      if (noteIds.length > 0) {
+        await Comment.deleteMany({ note: { $in: noteIds } }, { session });
+      }
+
+      // Delete all other associated data
+      await Note.deleteMany({ workspace: workspaceId }, { session });
+      await Folder.deleteMany({ workspace: workspaceId }, { session });
+      await File.deleteMany({ workspace: workspaceId }, { session });
+      await Collaborator.deleteMany({ workspace: workspaceId }, { session });
+      await WorkspaceChat.deleteOne({ workspace: workspaceId }, { session });
+
+      // Finally, delete the workspace itself
+      await Workspace.findByIdAndDelete(workspaceId, { session });
+
+      // If all operations succeed, commit the transaction
+      await session.commitTransaction();
+
+      return NextResponse.json({ message: 'Workspace and all associated data deleted successfully.' }, { status: 200 });
+
+    } catch (error) {
+      // If any operation fails, abort the entire transaction
+      await session.abortTransaction();
+      console.error('Error during workspace deletion transaction:', error);
+      return NextResponse.json({ error: 'Failed to delete workspace. The operation was rolled back.' }, { status: 500 });
+    } finally {
+      // End the session
+      session.endSession();
+    }
+
+  } catch (error) {
+    console.error('Error deleting workspace:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

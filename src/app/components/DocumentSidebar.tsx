@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, FC, useRef } from 'react';
-import { ChevronRight, Folder, FileText, Plus, Loader2, Upload, MoreHorizontal, Trash2, Download, FolderPlus, Edit } from 'lucide-react';
+import { ChevronRight, Folder, FileText, Plus, Loader2, Upload, MoreHorizontal, Trash2, Download, FolderPlus, Edit, Image } from 'lucide-react';
 import Link from 'next/link';
 import ConfirmationModal from './ConfirmationModal';
 
@@ -15,6 +15,7 @@ interface FolderChildren { folders: FolderItem[]; notes: NoteItem[]; files: File
 interface DocumentSidebarProps {
   currentDocumentId?: string;
   currentWorkspaceId?: string;
+  onDocumentSelect: (documentId: string) => void;
   onNewDocument: (workspaceId: string, folderId?: string) => void;
   className?: string;
 }
@@ -64,8 +65,8 @@ const InlineInput: FC<InlineInputProps> = ({ level, initialName, onSave, onCance
   );
 };
 
-interface ItemContextMenuProps { item: NoteItem | FileItem; onDelete: () => void; onDownload: () => void; }
-const ItemContextMenu: FC<ItemContextMenuProps> = ({ onDelete, onDownload }) => {
+interface ItemContextMenuProps { item: NoteItem | FileItem; onDelete: () => void; onDownload: () => void; onDescribe: () => void; }
+const ItemContextMenu: FC<ItemContextMenuProps> = ({ onDelete, onDownload, onDescribe }) => {
     const [isOpen, setIsOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
     useEffect(() => {
@@ -80,6 +81,7 @@ const ItemContextMenu: FC<ItemContextMenuProps> = ({ onDelete, onDownload }) => 
                 <div className="absolute right-0 mt-2 w-40 bg-white border border-gray-200 rounded-md shadow-lg z-20">
                     <button onClick={(e) => { e.stopPropagation(); onDownload(); setIsOpen(false); }} className="flex items-center w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-100"><Download className="w-4 h-4 mr-2" /> Download</button>
                     <button onClick={(e) => { e.stopPropagation(); onDelete(); setIsOpen(false); }} className="flex items-center w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50"><Trash2 className="w-4 h-4 mr-2" /> Delete</button>
+                    <button onClick={(e) => { e.stopPropagation(); onDescribe(); setIsOpen(false); }} className="flex items-center w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50"><Image className="w-4 h-4 mr-2" /> Describe</button>
                 </div>
             )}
         </div>
@@ -119,6 +121,7 @@ interface FolderProps {
   onUploadFile: (folderId: string) => void; 
   onDeleteItem: (item: NoteItem | FileItem | FolderItem, type: 'note' | 'file' | 'folder') => void;
   onDownloadItem: (item: NoteItem | FileItem, type: 'note' | 'file') => void;
+  onDescribeImage: (imageUrl: string) => void;
   onInitiateNewFolder: (parentId: string | null) => void;
   creatingFolder: { parentId: string | null } | null;
   onSaveFolder: (name: string, parentId: string | null) => void;
@@ -215,7 +218,7 @@ const FolderTreeItem: FC<FolderProps> = (props) => {
                     <FileText className="w-4 h-4 mr-2 text-gray-500 flex-shrink-0" />
                     <span className={`text-sm truncate ${props.currentDocumentId === note._id ? 'text-blue-700 font-medium' : 'text-gray-700'}`}>{note.title || 'Untitled'}</span>
                 </Link>
-                <div className="opacity-0 group-hover:opacity-100 transition-opacity"><ItemContextMenu item={note} onDelete={() => props.onDeleteItem(note, 'note')} onDownload={() => props.onDownloadItem(note, 'note')} /></div>
+                <div className="opacity-0 group-hover:opacity-100 transition-opacity"><ItemContextMenu item={note} onDelete={() => props.onDeleteItem(note, 'note')} onDownload={() => props.onDownloadItem(note, 'note')} onDescribe={() => props.onDescribeImage(note._id)} /></div>
             </div>
           ))}
           {children && children.files.map((file) => (
@@ -224,7 +227,7 @@ const FolderTreeItem: FC<FolderProps> = (props) => {
                     <FileText className="w-4 h-4 mr-2 text-green-600 flex-shrink-0" />
                     <span className="text-sm text-gray-700 truncate">{file.fileName}</span>
                 </a>
-                <div className="opacity-0 group-hover:opacity-100 transition-opacity"><ItemContextMenu item={file} onDelete={() => props.onDeleteItem(file, 'file')} onDownload={() => props.onDownloadItem(file, 'file')} /></div>
+                <div className="opacity-0 group-hover:opacity-100 transition-opacity"><ItemContextMenu item={file} onDelete={() => props.onDeleteItem(file, 'file')} onDownload={() => props.onDownloadItem(file, 'file')} onDescribe={() => props.onDescribeImage(file.storageUrl)} /></div>
             </div>
           ))}
            <button onClick={() => props.onNewDocument(props.currentWorkspaceId, folder._id)} className="flex items-center w-full text-left p-2 rounded-md hover:bg-gray-100 text-gray-500" style={{ paddingLeft: `${(level + 1) * 16}px` }}>
@@ -238,7 +241,7 @@ const FolderTreeItem: FC<FolderProps> = (props) => {
 
 
 // --- MAIN SIDEBAR COMPONENT ---
-const DocumentSidebar: React.FC<DocumentSidebarProps> = ({ currentDocumentId, currentWorkspaceId, onNewDocument, className = '' }) => {
+const DocumentSidebar: React.FC<DocumentSidebarProps> = ({ currentDocumentId, currentWorkspaceId, onDocumentSelect ,onNewDocument, className = '' }) => {
   const [rootFolders, setRootFolders] = useState<FolderItem[]>([]);
   const [rootNotes, setRootNotes] = useState<NoteItem[]>([]);
   const [rootFiles, setRootFiles] = useState<FileItem[]>([]);
@@ -344,6 +347,18 @@ const DocumentSidebar: React.FC<DocumentSidebarProps> = ({ currentDocumentId, cu
         }
     }
   };
+
+  const handleDescribeClick = async (imageUrl: string) => {
+  const res = await fetch('/api/image-description', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ imageUrl }),
+  });
+
+  const data = await res.json();
+  console.log('Image Description:', data.description);
+  alert(`Image Description: ${data.description}`);
+};
 
   const handleDeleteItem = (item: NoteItem | FileItem | FolderItem, type: 'note' | 'file' | 'folder') => {
     setItemToDelete({ item, type });
@@ -457,6 +472,7 @@ const DocumentSidebar: React.FC<DocumentSidebarProps> = ({ currentDocumentId, cu
               onUploadFile={handleUploadClick}
               onDeleteItem={handleDeleteItem}
               onDownloadItem={handleDownloadItem}
+              onDescribeImage={handleDescribeClick}// Placeholder for describe functionality
               onInitiateNewFolder={handleInitiateNewFolder}
               creatingFolder={creatingFolder}
               onSaveFolder={handleSaveFolder}
@@ -475,7 +491,7 @@ const DocumentSidebar: React.FC<DocumentSidebarProps> = ({ currentDocumentId, cu
                     <FileText className="w-4 h-4 mr-2 text-gray-500 flex-shrink-0" />
                     <span className={`text-sm truncate ${currentDocumentId === note._id ? 'text-blue-700 font-medium' : 'text-gray-700'}`}>{note.title || 'Untitled'}</span>
                 </Link>
-                <div className="opacity-0 group-hover:opacity-100 transition-opacity"><ItemContextMenu item={note} onDelete={() => handleDeleteItem(note, 'note')} onDownload={() => handleDownloadItem(note, 'note')} /></div>
+                <div className="opacity-0 group-hover:opacity-100 transition-opacity"><ItemContextMenu item={note} onDelete={() => handleDeleteItem(note, 'note')} onDownload={() => handleDownloadItem(note, 'note')} onDescribe={() => handleDescribeClick(note._id)} /></div>
             </div>
           ))}
           
@@ -485,7 +501,7 @@ const DocumentSidebar: React.FC<DocumentSidebarProps> = ({ currentDocumentId, cu
                     <FileText className="w-4 h-4 mr-2 text-green-600 flex-shrink-0" />
                     <span className="text-sm text-gray-700 truncate">{file.fileName}</span>
                 </a>
-                <div className="opacity-0 group-hover:opacity-100 transition-opacity"><ItemContextMenu item={file} onDelete={() => handleDeleteItem(file, 'file')} onDownload={() => handleDownloadItem(file, 'file')} /></div>
+                <div className="opacity-0 group-hover:opacity-100 transition-opacity"><ItemContextMenu item={file} onDelete={() => handleDeleteItem(file, 'file')} onDownload={() => handleDownloadItem(file, 'file')} onDescribe={() => handleDescribeClick(file.storageUrl)} /></div>
             </div>
           ))}
           

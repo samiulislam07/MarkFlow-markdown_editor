@@ -1,3 +1,5 @@
+// src/app/components/ConfirmationModal.tsx
+
 'use client'
 
 import { X, AlertTriangle } from 'lucide-react';
@@ -11,6 +13,8 @@ interface ConfirmationModalProps {
   confirmText?: string;
   isDestructive?: boolean;
   isLoading?: boolean;
+  // Add the optional errorMessage prop
+  errorMessage?: string | null;
 }
 
 export default function ConfirmationModal({
@@ -22,6 +26,8 @@ export default function ConfirmationModal({
   confirmText = 'Confirm',
   isDestructive = true,
   isLoading = false,
+  // Destructure the new prop
+  errorMessage = null,
 }: ConfirmationModalProps) {
   if (!isOpen) return null;
 
@@ -46,6 +52,13 @@ export default function ConfirmationModal({
                   {message}
                 </p>
               </div>
+              
+              {/* === ADDED: Conditionally render the error message === */}
+              {errorMessage && (
+                <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+                  <p className="text-sm font-medium text-red-800">{errorMessage}</p>
+                </div>
+              )}
             </div>
           </div>
         </div>
