@@ -613,6 +613,31 @@ const MergedMarkdownEditor: React.FC<MarkdownEditorProps> = ({
       </div>
     );
   };
+      const exportRightPaneAsPdf = async () => {
+      const previewEl = document.getElementById('pdf-content');
+      if (!previewEl) return;
+
+      const html = previewEl.innerHTML;
+
+      const res = await fetch('/api/pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ html }),
+      });
+
+      if (!res.ok) {
+        alert('PDF generation failed');
+        return;
+      }
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${title.replace(/[^a-z0-9]/gi, '_')}-${Date.now()}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    };
 
   const saveDocument = useCallback(async () => {
     if (!user || saveStatus === "saving") return;
@@ -1633,16 +1658,16 @@ const handleDescribeClick = async (imageUrl: string) => {
               Copy
             </button>
             <button
-              onClick={handleDownload}
-              className={`flex items-center px-3 py-2 text-sm rounded-lg transition-colors ${
-                darkMode
-                  ? "bg-green-900 text-green-200 hover:bg-green-800"
-                  : "bg-green-100 text-green-700 hover:bg-green-200"
-              }`}
-            >
-              <Download className="w-4 h-4 mr-2" />
-              Export
-            </button>
+                onClick={exportRightPaneAsPdf}
+                className={`flex items-center px-3 py-2 text-sm rounded-lg transition-colors ${
+                  darkMode
+                    ? "bg-green-900 text-green-200 hover:bg-green-800"
+                    : "bg-green-100 text-green-700 hover:bg-green-200"
+                }`}
+              >
+                <Download className="w-4 h-4 mr-2" />
+                Export
+              </button>
             <button
               onClick={toggleFullScreen}
               className={`flex items-center px-3 py-2 text-sm rounded-lg transition-colors ${
@@ -1832,7 +1857,7 @@ const handleDescribeClick = async (imageUrl: string) => {
                 }
               }}
             >
-              <div className="flex-1 p-6">
+              <div id="pdf-content" className="flex-1 p-6">
                 {isProcessing ? (
                   <div className={`flex flex-col items-center justify-center h-64 ${
                     darkMode ? "text-gray-400" : "text-gray-500"

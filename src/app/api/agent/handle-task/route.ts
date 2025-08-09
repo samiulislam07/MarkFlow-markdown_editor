@@ -32,7 +32,7 @@ export async function POST(req: Request) {
     );
     agentForm.append('session_id', userId || 'anonymous'); 
 
-    const response = await fetch('https://47khcftn-8000.asse.devtunnels.ms/run-agent', {
+    const response = await fetch('https://mntvh0jb-8000.asse.devtunnels.ms/run-agent', {
       method: 'POST',
       body: agentForm,
     });

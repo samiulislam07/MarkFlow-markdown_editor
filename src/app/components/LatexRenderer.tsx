@@ -1,12 +1,10 @@
 'use client'
-import { useEffect, useRef } from 'react';
+import React,{ useEffect, useRef } from 'react';
 import 'katex/dist/katex.min.css';
-
 interface LatexRendererProps {
   content: string;
   className?: string;
 }
-
 interface DocumentState {
   sectionCounter: number;
   subsectionCounter: number;
@@ -19,7 +17,6 @@ interface DocumentState {
   date: string;
   labels: { [key: string]: number };
 }
-
 export default function LatexRenderer({ content, className = '' }: LatexRendererProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
