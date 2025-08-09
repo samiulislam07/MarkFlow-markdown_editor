@@ -55,6 +55,7 @@ import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import remarkRehype from 'remark-rehype';
 import rehypeKatex from 'rehype-katex'; // <-- Make sure this import is here
+import 'katex/dist/katex.min.css'; // Import KaTeX CSS
 import rehypeSanitize from 'rehype-sanitize';
 import rehypeStringify from 'rehype-stringify';
 import rehypeHighlight from 'rehype-highlight';
@@ -358,13 +359,40 @@ const MergedMarkdownEditor: React.FC<MarkdownEditorProps> = ({
         .use(rehypeSanitize, {
           // KaTeX adds its own classes, so we need to allow them
           attributes: {
-            '*': ['className', 'style', 'aria-hidden'],
+            '*': ['className', 'style', 'aria-hidden', 'role', 'title'],
             'a': ['href', 'target', 'rel', 'id'],
             'img': ['src', 'alt', 'title'],
             'input': ['type', 'checked', 'disabled'],
-            'span': ['data*'],
-            'div': ['id']
-          }
+            'span': ['data*', 'className', 'style', 'aria-hidden'],
+            'div': ['id', 'className', 'style'],
+            'svg': ['aria-hidden', 'focusable', 'role', 'viewBox', 'width', 'height', 'xmlns'],
+            'path': ['d', 'fill'],
+            'use': ['href'],
+            'g': ['fill'],
+            'rect': ['width', 'height', 'fill'],
+            'text': ['x', 'y', 'fill'],
+            'defs': [],
+            'clipPath': ['id'],
+            'foreignObject': ['width', 'height'],
+            'math': ['xmlns'],
+            'semantics': [],
+            'mrow': [],
+            'mi': ['mathvariant'],
+            'mo': ['fence', 'separator', 'stretchy', 'symmetric'],
+            'mn': [],
+            'msup': [],
+            'msub': [],
+            'mfrac': ['linethickness'],
+            'mtext': [],
+            'annotation': ['encoding']
+          },
+          tagNames: [
+            'div', 'span', 'p', 'br', 'strong', 'em', 'code', 'pre', 'blockquote',
+            'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li', 'a', 'img',
+            'table', 'thead', 'tbody', 'tr', 'th', 'td', 'hr', 'del', 'ins',
+            'svg', 'path', 'g', 'rect', 'text', 'defs', 'clipPath', 'use', 'foreignObject',
+            'math', 'semantics', 'mrow', 'mi', 'mo', 'mn', 'msup', 'msub', 'mfrac', 'mtext', 'annotation'
+          ]
         })
         .use(rehypeStringify)
         .process(markdown);
@@ -1700,6 +1728,16 @@ const handleDescribeClick = async (imageUrl: string) => {
             label="Ordered List"
           />
           <EditorToolbarButton
+            onClick={() => insertTextAtCursor("$$\n\n$$", 3)}
+            icon={MathIcon}
+            label="Math Block"
+          />
+          <EditorToolbarButton
+            onClick={() => insertTextAtCursor("$", 1)}
+            icon={Subscript}
+            label="Inline Math"
+          />
+          <EditorToolbarButton
             onClick={() => insertTextAtCursor("> ", 2)}
             icon={Quote}
             label="Blockquote"
@@ -2576,6 +2614,40 @@ const handleDescribeClick = async (imageUrl: string) => {
           overflow-x: auto !important;
           overflow-y: hidden !important;
           text-align: center !important;
+        }
+
+        /* KaTeX Math Rendering Styles */
+        .katex {
+          color: ${darkMode ? "#e2e8f0" : "#374151"} !important;
+          font-size: 1.1em !important;
+        }
+        .katex-display {
+          margin: 1.5rem 0 !important;
+          text-align: center !important;
+          overflow-x: auto !important;
+          overflow-y: hidden !important;
+        }
+        .katex-display > .katex {
+          display: inline-block !important;
+          text-align: initial !important;
+        }
+        .katex .base {
+          position: relative !important;
+        }
+        .katex .strut {
+          display: inline-block !important;
+        }
+        .katex .frac-line {
+          border-bottom-color: ${darkMode ? "#e2e8f0" : "#374151"} !important;
+        }
+        .katex .mord {
+          color: ${darkMode ? "#e2e8f0" : "#374151"} !important;
+        }
+        .katex .mbin, .katex .mrel {
+          color: ${darkMode ? "#a0aec0" : "#6b7280"} !important;
+        }
+        .katex .mopen, .katex .mclose {
+          color: ${darkMode ? "#cbd5e0" : "#4a5568"} !important;
         }
         @media (max-width: 768px) {
           .markflow-preview {
