@@ -27,6 +27,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
+import { Copy, Edit3 } from 'lucide-react';
 
 export default function ChatBox({
   channel,
@@ -376,6 +377,28 @@ export default function ChatBox({
     </span>
   );
 
+const handleWriteToEditor = async (content: string) => {
+  try {
+    // Trigger the incremental writing animation
+    if ((window as any).writeToEditor) {
+      await (window as any).writeToEditor(content);
+    } else {
+      // Fallback: direct API call
+      const response = await fetch('/api/write-to-editor', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content, workspaceId: channel.id })
+      });
+      
+      if (response.ok) {
+        console.log('Content written to editor successfully');
+      }
+    }
+  } catch (error) {
+    console.error('Failed to write to editor:', error);
+  }
+};
+
   return (
     <div className="flex flex-col h-full bg-white">
       {/* Chat header */}
@@ -522,15 +545,25 @@ export default function ChatBox({
                           <p className={`whitespace-pre-wrap break-words ${isAgent ? 'mr-2.5 p-2' : ''}`}>
                             {msg.text}
                           </p>
-                          {isAgent && (
-                            <button
-                              onClick={() => handleCopy(msg.text)}
-                              className="absolute top-2 right-2 p-2 rounded-full hover:bg-purple-200 text-purple-600 transition-colors"
-                              title="Copy to clipboard"
-                            >
-                              <FiCopy size={18} />
-                            </button>
-                          )}
+                  {isAgent && (
+                    <div>
+                      <button
+                        onClick={() => handleCopy(msg.text)}
+                        className="absolute top-2 right-2 p-2 rounded-full hover:bg-purple-200 text-purple-600 transition-colors"
+                        title="Copy to clipboard"
+                      >
+                        <FiCopy size={18} />
+                      </button>
+                      <button
+                        onClick={() => handleWriteToEditor(msg.text)}
+                        className="flex items-center px-2 py-1 text-xs bg-blue-500 hover:bg-blue-600 text-white rounded transition-colors"
+                        title="Write to Editor"
+                      >
+                        <Edit3 className="w-3 h-3 mr-1" />
+                        Write to Editor
+                      </button>
+                    </div>
+                  )}
                           <div
                             className={`flex items-center justify-end mt-1 space-x-1 text-xs ${isYou ? "text-blue-200" : "text-gray-500"}`}
                           >

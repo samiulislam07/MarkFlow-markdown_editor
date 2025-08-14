@@ -149,6 +149,7 @@ const MergedMarkdownEditor: React.FC<MarkdownEditorProps> = ({
   // --- COMMENTING SYSTEM STATE ---
   const [isCommentSidebarOpen, setIsCommentSidebarOpen] = useState<boolean>(false);
   const refreshDecorations = StateEffect.define<{ ydoc: Y.Doc; activeId: string | null }>();
+  const [isWritingToEditor, setIsWritingToEditor] = useState(false);
 
 
   // --- IMPROVE FEATURE STATE ---
@@ -1628,6 +1629,114 @@ const handleDescribeClick = async (imageUrl: string) => {
   alert(`Image Description:\n\n${data.description}`);
 };
 
+const writeToEditorWithAnimation = useCallback(async (content: string) => {
+  if (!editorViewRef.current || isWritingToEditor) return;
+  
+  setIsWritingToEditor(true);
+  
+  try {
+    const view = editorViewRef.current;
+    const startPos = view.state.selection.main.head;
+    
+    // Clean the content first
+    const cleanContent = content
+      .trim()
+      .replace(/^```(?:markdown)?\s*/i, "")
+      .replace(/```$/, "")
+      .trim();
+    
+    if (!cleanContent) {
+      setIsWritingToEditor(false);
+      return;
+    }
+    //
+
+    const normalizedContent = cleanContent
+      .replace(/\r\n/g, '\n')           // Convert Windows line endings
+      .replace(/\r/g, '\n')             // Convert old Mac line endings
+      .replace(/\n{3,}/g, '\n\n')       // Replace 3+ consecutive newlines with 2
+      .replace(/\n\s*\n/g, '\n\n');     // Remove whitespace between paragraphs
+
+    const fullContent = '\n' + normalizedContent + '\n';
+
+    // **CRITICAL FIX**: Disable Yjs observer temporarily to prevent interference
+    const ytext = doc.getText("codemirror");
+    let yjsObserverDisabled = true;
+    
+    // Insert all content at once in Yjs (silently)
+    // doc.transact(() => {
+    //   ytext.insert(startPos, fullContent);
+    // });
+    
+    // Now animate character by character in the editor view only
+    let currentPos = startPos;
+    
+    for (let i = 0; i < fullContent.length; i++) {
+      const char = fullContent[i];
+      
+      // Validate position is still within bounds
+      const docLength = view.state.doc.length;
+      if (currentPos > docLength) break;
+      
+      // **CRITICAL FIX**: Use a single dispatch with the exact character position
+      view.dispatch({
+        changes: { from: currentPos, insert: char },
+        selection: { anchor: currentPos + 1 }
+      });
+      
+
+      if (i % 10 === 0 || i === fullContent.length - 1) {
+        doc.transact(() => {
+          const ytext = doc.getText("codemirror");
+          const currentContent = view.state.doc.toString();
+          ytext.delete(0, ytext.length);
+          ytext.insert(0, currentContent);
+        });
+      }
+
+      currentPos += 1;
+      
+      // **CRITICAL FIX**: Use requestAnimationFrame for smooth rendering
+      await new Promise(resolve => {
+        requestAnimationFrame(() => {
+          setTimeout(resolve, 10); // Adjust speed here (25ms = smooth, 50ms = slower)
+        });
+      });
+    }
+    
+    // Re-enable Yjs observer
+    yjsObserverDisabled = false;
+
+    // doc.transact(() => {
+    //   ytext.insert(startPos, fullContent);
+    // });
+    
+  } catch (error) {
+    console.error('Error in writeToEditorWithAnimation:', error);
+  } finally {
+    setIsWritingToEditor(false);
+  }
+}, [doc, isWritingToEditor]);
+
+useEffect(() => {
+  // Expose function globally but prevent multiple calls
+  if (!isWritingToEditor) {
+    (window as any).writeToEditor = writeToEditorWithAnimation;
+  }
+  
+  return () => {
+    delete (window as any).writeToEditor;
+  };
+}, [writeToEditorWithAnimation, isWritingToEditor]);
+
+
+useEffect(() => {
+  (window as any).writeToEditor = writeToEditorWithAnimation;
+  
+  return () => {
+    delete (window as any).writeToEditor;
+  };
+}, []); 
 
   return (
     <div
@@ -1908,6 +2017,12 @@ const handleDescribeClick = async (imageUrl: string) => {
               )}
               {isFullScreen ? "Exit Fullscreen" : "Full"}
             </button>
+            {isWritingToEditor && (
+              <span className="flex items-center text-blue-600 dark:text-blue-400">
+                <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-600 mr-2" />
+                Writing to editor...
+              </span>
+            )}
           </div>
         </div>
       </div>
