@@ -1,43 +1,40 @@
 import { NextRequest, NextResponse } from 'next/server';
-import fetch from 'node-fetch'; // only if not globally available
+import { GoogleGenAI } from '@google/genai';
+import * as fs from "node:fs"; // if needed
 
 export async function POST(req: NextRequest) {
   const { imageUrl } = await req.json();
-
   if (!imageUrl) {
     return NextResponse.json({ error: 'No image URL provided' }, { status: 400 });
   }
 
   try {
-    // Step 1: Download the image
+    // Step 1: Fetch image and encode as base64
     const imageRes = await fetch(imageUrl);
     if (!imageRes.ok) {
-      throw new Error('Failed to fetch image from Supabase URL');
+      throw new Error('Failed to fetch image');
     }
+    const buffer = Buffer.from(await imageRes.arrayBuffer());
+    const base64Data = buffer.toString('base64');
 
-    const arrayBuffer = await imageRes.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-    const base64Image = buffer.toString('base64');
+    // Step 2: Call Gemini API (Imagen) for captioning
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
-    // Step 2: Send to Gemma3n multimodal API
-    const gemmaRes = await fetch('https://47khcftn-11434.asse.devtunnels.ms/api/generate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'gemma3n',
-        prompt: 'Describe this image in detail. Mention people, objects, gender, and scene.',
-        images: [base64Image],
-        stream: false,
-      }),
+    const contents = [
+      { inlineData: { mimeType: "image/jpeg", data: base64Data } },
+      { text: "Describe this image in detail, mentioning people, objects, scene, and any visible genders." }
+    ];
+
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash", // or choose an appropriate multimodal model
+      contents,
     });
 
-    console.log('Gemma3n response:', gemmaRes.status, gemmaRes.statusText);
-    const data = (await gemmaRes.json()) as { response?: string };
-    const description = data.response || 'No description generated.';
+    const description = response.text || "No description generated.";
 
     return NextResponse.json({ description });
   } catch (err: any) {
-    console.error('Error describing image:', err);
+    console.error("Error describing image:", err);
     return NextResponse.json({ error: 'Failed to describe image' }, { status: 500 });
   }
 }

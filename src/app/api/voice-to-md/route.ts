@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
   const { text } = await request.json();
 
   try {
-    const model = genAI.getGenerativeModel({ model: 'gemma-3n-e2b-it' }); // or gemini-pro
+    const model = genAI.getGenerativeModel({ model: "gemma-3-1b-it" }); // or gemini-pro
 
     const chat = model.startChat({ history: [] });
 

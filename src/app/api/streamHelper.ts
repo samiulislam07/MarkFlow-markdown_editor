@@ -4,7 +4,7 @@ import { NextRequest } from 'next/server';
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 
 export async function getImprovedTextStream(text: string, req: NextRequest): Promise<ReadableStream> {
-  const model = genAI.getGenerativeModel({ model: 'gemma-3n-e2b-it' });
+  const model = genAI.getGenerativeModel({ model: "gemma-3-1b-it" });
 
   const prompt = `
 You are an assistant that rewrites and improves user-written markdown or prose. 
