@@ -10,7 +10,8 @@
     "seed": "node scripts/seed-database.js",
     "test:db": "node scripts/seed-database.js",
     "party:dev": "partykit dev",
-    "party:deploy": "partykit deploy"
+    "party:deploy": "partykit deploy",
+    "postinstall": "npx puppeteer browsers install chrome"
   },
   "dependencies": {
     "@clerk/nextjs": "^6.30.0",
