@@ -419,7 +419,7 @@ const DocumentSidebar: React.FC<DocumentSidebarProps> = ({ currentDocumentId, cu
     </div>
   );
 });
-
+ ImageDescriptionPopup.displayName = "ImagePopup";
 
   const handleDescribeClick = async (imageUrl: string) => {
     setShowImagePopup(true);

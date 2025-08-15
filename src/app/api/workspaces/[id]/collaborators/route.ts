@@ -8,7 +8,7 @@ import { syncChatParticipants } from '@/lib/services/chatService'
 // DELETE - Remove a collaborator from a workspace
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: any }
 ) {
   const workspaceId = params.id
 

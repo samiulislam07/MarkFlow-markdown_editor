@@ -194,7 +194,7 @@ export async function POST(request: NextRequest) {
 // DELETE - Delete a workspace and all its associated data
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: any }
 ) {
   const workspaceId = params.id;
 

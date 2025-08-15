@@ -9,7 +9,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Clean the content (remove code block wrappers if present)
-    let cleanContent = content
+    const cleanContent = content
       .trim()
       .replace(/^```(?:markdown)?\s*/i, "")
       .replace(/```$/, "")

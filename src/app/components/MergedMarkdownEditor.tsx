@@ -1060,7 +1060,7 @@ const md = new MarkdownIt({
   };
   const handleReplaceImprovedText = () => {
       if (editorViewRef.current) {
-        let improveMarkdown = improvedText
+        const improveMarkdown = improvedText
         .trim()
         .replace(/^```(?:markdown)?\s*/i, "") // remove start
         .replace(/```$/, "") // remove end
@@ -1403,7 +1403,7 @@ const stopVoiceRecording = () => {
 
   const handlePlaceVoiceText = () => {
     if (voiceMarkdown && editorViewRef.current) {
-      let cleanMarkdown = voiceMarkdown
+      const cleanMarkdown = voiceMarkdown
       .trim()
       .replace(/^```(?:markdown)?\s*/i, "") // remove start
       .replace(/```$/, "") // remove end

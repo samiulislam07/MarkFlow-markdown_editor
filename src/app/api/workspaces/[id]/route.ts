@@ -14,7 +14,7 @@ import WorkspaceChat from '@/lib/mongodb/models/WorkspaceChat'
 
 export async function DELETE(
   _request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: any }
 ) {
   const workspaceId = params.id
 
