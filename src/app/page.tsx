@@ -345,7 +345,7 @@ export default function Home() {
                 <ArrowRight className="inline-block ml-2 w-5 h-5 group-hover:translate-x-1 transition-transform" />
               </Link>
               <Link
-                href="/contact"
+                href=""
                 className="px-8 py-4 bg-white/10 backdrop-blur-sm text-white rounded-xl text-lg font-semibold hover:bg-white/20 transition-all border border-white/20"
               >
                 Contact Sales
@@ -355,7 +355,7 @@ export default function Home() {
 
           <SignedIn>
             <Link
-              href="/editor"
+              href="/dashboard"
               className="group inline-flex items-center px-8 py-4 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-xl text-lg font-semibold hover:from-blue-600 hover:to-purple-600 transition-all shadow-2xl transform hover:scale-105"
             >
               Create Your First Document
@@ -392,7 +392,7 @@ export default function Home() {
               <ul className="space-y-2 text-gray-400">
                 <li>
                   <Link
-                    href="/features"
+                    href=""
                     className="hover:text-white transition-colors"
                   >
                     Features
@@ -400,7 +400,7 @@ export default function Home() {
                 </li>
                 <li>
                   <Link
-                    href="/pricing"
+                    href=""
                     className="hover:text-white transition-colors"
                   >
                     Pricing
@@ -408,7 +408,7 @@ export default function Home() {
                 </li>
                 <li>
                   <Link
-                    href="/integrations"
+                    href=""
                     className="hover:text-white transition-colors"
                   >
                     Integrations
@@ -416,7 +416,7 @@ export default function Home() {
                 </li>
                 <li>
                   <Link
-                    href="/api"
+                    href=""
                     className="hover:text-white transition-colors"
                   >
                     API
@@ -438,7 +438,7 @@ export default function Home() {
                 </li>
                 <li>
                   <Link
-                    href="/blog"
+                    href=""
                     className="hover:text-white transition-colors"
                   >
                     Blog
@@ -446,7 +446,7 @@ export default function Home() {
                 </li>
                 <li>
                   <Link
-                    href="/careers"
+                    href=""
                     className="hover:text-white transition-colors"
                   >
                     Careers
@@ -454,7 +454,7 @@ export default function Home() {
                 </li>
                 <li>
                   <Link
-                    href="/contact"
+                    href=""
                     className="hover:text-white transition-colors"
                   >
                     Contact
@@ -468,7 +468,7 @@ export default function Home() {
               <ul className="space-y-2 text-gray-400">
                 <li>
                   <Link
-                    href="/help"
+                    href=""
                     className="hover:text-white transition-colors"
                   >
                     Help Center
@@ -476,7 +476,7 @@ export default function Home() {
                 </li>
                 <li>
                   <Link
-                    href="/docs"
+                    href=""
                     className="hover:text-white transition-colors"
                   >
                     Documentation
@@ -484,7 +484,7 @@ export default function Home() {
                 </li>
                 <li>
                   <Link
-                    href="/community"
+                    href=""
                     className="hover:text-white transition-colors"
                   >
                     Community
@@ -492,7 +492,7 @@ export default function Home() {
                 </li>
                 <li>
                   <Link
-                    href="/status"
+                    href=""
                     className="hover:text-white transition-colors"
                   >
                     Status
@@ -508,19 +508,19 @@ export default function Home() {
             </p>
             <div className="flex space-x-6 mt-4 md:mt-0">
               <Link
-                href="/privacy"
+                href=""
                 className="text-gray-400 hover:text-white transition-colors"
               >
                 Privacy
               </Link>
               <Link
-                href="/terms"
+                href=""
                 className="text-gray-400 hover:text-white transition-colors"
               >
                 Terms
               </Link>
               <Link
-                href="/security"
+                href=""
                 className="text-gray-400 hover:text-white transition-colors"
               >
                 Security

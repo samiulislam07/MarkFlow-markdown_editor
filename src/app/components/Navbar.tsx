@@ -9,6 +9,7 @@ import GuestLoginButton from "@/components/ui/GuestLoginButton";
 // Navigation links for signed out users
 const publicNavLinks: { name: string; href: string }[] = [
   { name: "Features", href: "/features" },
+  { name: "About", href: "/about" },
   { name: "Pricing", href: "/pricing" },
 ];
 
@@ -16,6 +17,7 @@ const publicNavLinks: { name: string; href: string }[] = [
 const authNavLinks: { name: string; href: string }[] = [
   { name: "Dashboard", href: "/dashboard" },
   { name: "Workspaces", href: "/workspaces" },
+  { name: "About", href: "/about" },
 //   { name: "Editor", href: "/editor" },
 ];
 
