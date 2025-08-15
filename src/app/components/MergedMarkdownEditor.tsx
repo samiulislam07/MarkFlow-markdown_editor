@@ -1178,12 +1178,25 @@ useEffect(() => {
       return;
     }
 
-    const rect = range.getBoundingClientRect();
-    
+    //const rect = range.getBoundingClientRect();
+    //const rect = range.getClientRects()[range.getClientRects().length - 1];
+
+    const rects = range.getClientRects();
+    if (!rects.length) return;
+    const rect = rects[rects.length - 1]; // Always use the last rectangle
+
+    const maxX = window.innerWidth - 50; // 50px padding from right edge
+    const maxY = window.innerHeight - 50; // 50px padding from bottom edge
+
     const buttonPosition = {
-      x: rect.right + window.scrollX + 1,
-      y: rect.top + window.scrollY - 10
+      x: Math.min(rect.right + window.scrollX + 1, maxX),
+      y: Math.min(rect.top + window.scrollY - 10, maxY)
     };
+    
+    // const buttonPosition = {
+    //   x: rect.right + window.scrollX + 1,
+    //   y: rect.top + window.scrollY - 10
+    // };
 
     // Get the absolute positions within the editor with error handling
     const editor = editorViewRef.current;
