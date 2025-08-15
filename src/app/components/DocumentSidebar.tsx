@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect, useCallback, FC, useRef } from 'react';
-import { ChevronRight, Folder, FileText, Plus, Loader2, Upload, MoreHorizontal, Trash2, Download, FolderPlus, Edit, Image } from 'lucide-react';
+import React, { useState, useEffect, useCallback, FC, useRef } from 'react';
+import { ChevronRight, Folder, FileText, Plus, Loader2, Upload, MoreHorizontal, Trash2, Download, FolderPlus, Edit, Image, X, ImageIcon } from 'lucide-react';
 import Link from 'next/link';
 import ConfirmationModal from './ConfirmationModal';
 import { useTheme } from '@/hooks/useTheme';
@@ -260,6 +260,9 @@ const DocumentSidebar: React.FC<DocumentSidebarProps> = ({ currentDocumentId, cu
   const [isDeleting, setIsDeleting] = useState(false);
   const [creatingFolder, setCreatingFolder] = useState<{ parentId: string | null } | null>(null);
   const [renamingItemId, setRenamingItemId] = useState<string | null>(null);
+  const [showImagePopup, setShowImagePopup] = useState(false);
+  const [imageDescription, setImageDescription] = useState("");
+  const [imageLoading, setImageLoading] = useState(false);
 
   const fetchWorkspaceRootContent = useCallback(async (workspaceId: string) => {
     setIsLoading(true);
@@ -351,17 +354,89 @@ const DocumentSidebar: React.FC<DocumentSidebarProps> = ({ currentDocumentId, cu
     }
   };
 
-  const handleDescribeClick = async (imageUrl: string) => {
-  const res = await fetch('/api/image-description', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ imageUrl }),
-  });
+  const ImageDescriptionPopup = React.memo(() => {
+  if (!showImagePopup) return null;
 
-  const data = await res.json();
-  console.log('Image Description:', data.description);
-  alert(`Image Description: ${data.description}`);
-};
+  return (
+    <div
+      className={`fixed z-50 top-1/2 right-4 transform -translate-y-1/2 w-96 p-4 rounded-lg shadow-xl border ${
+        darkMode ? "bg-gray-800 border-gray-700" : "bg-white border-gray-200"
+      }`}
+      style={{ maxHeight: "80vh" }} // limit popup height
+    >
+      {/* Header */}
+      <div className="flex justify-between items-center mb-3">
+        <h3 className="font-medium flex items-center">
+          <ImageIcon className="w-4 h-4 mr-2" />
+          Image Description
+        </h3>
+        <button
+          onClick={() => setShowImagePopup(false)}
+          className={`p-1 rounded-full ${
+            darkMode ? "hover:bg-gray-700" : "hover:bg-gray-100"
+          }`}
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+
+      {/* Scrollable content */}
+      <div
+        className="overflow-y-auto pr-1 mb-4"
+        style={{ maxHeight: "50vh" }}
+      >
+        {imageLoading ? (
+          <div className="flex justify-center items-center py-8">
+            <Loader2 className="w-6 h-6 animate-spin" />
+          </div>
+        ) : (
+          <div
+            className={`p-3 rounded ${
+              darkMode ? "bg-gray-700" : "bg-gray-100"
+            }`}
+          >
+            <h4 className="text-xs font-medium mb-1">Description:</h4>
+            <p className="text-sm whitespace-pre-wrap">
+              {imageDescription}
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* Optional buttons */}
+      <div className="flex space-x-2">
+        <button
+          onClick={() => setShowImagePopup(false)}
+          className={`flex-1 py-2 px-3 rounded ${
+            darkMode
+              ? "bg-blue-600 hover:bg-blue-700 text-white"
+              : "bg-blue-500 hover:bg-blue-600 text-white"
+          }`}
+        >
+          Close
+        </button>
+      </div>
+    </div>
+  );
+});
+
+
+  const handleDescribeClick = async (imageUrl: string) => {
+    setShowImagePopup(true);
+    setImageLoading(true);
+
+    const res = await fetch('/api/image-description', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ imageUrl }),
+    });
+
+    const data = await res.json();
+    setImageDescription(data.description);
+    setImageLoading(false);
+  };
+
+
 
   const handleDeleteItem = (item: NoteItem | FileItem | FolderItem, type: 'note' | 'file' | 'folder') => {
     setItemToDelete({ item, type });
@@ -524,6 +599,7 @@ const DocumentSidebar: React.FC<DocumentSidebarProps> = ({ currentDocumentId, cu
         confirmText="Delete"
         isLoading={isDeleting}
       />
+      <ImageDescriptionPopup />
     </>
   );
 };

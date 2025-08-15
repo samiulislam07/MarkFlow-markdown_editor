@@ -2124,11 +2124,11 @@ useEffect(() => {
               label="Voice Input"
               onClick={handleVoiceInput}
             />
-            <EditorToolbarButton
+            {/* <EditorToolbarButton
               icon={ImageIcon}
               label="Describe Image"
               onClick={() => handleDescribeClick("https://audyvywtoxcbcnjttzji.supabase.co/storage/v1/object/public/uploads/uploads/Show%20of%20Power%20Baton.png")}
-            />
+            /> */}
         </div>
       </div>
 
