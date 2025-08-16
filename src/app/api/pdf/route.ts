@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
   const page = await browser.newPage();
 
   // Set content & wait for fonts / images
-  await page.setContent(html, { waitUntil: 'networkidle0' });
+  await page.setContent(html, { waitUntil: 'domcontentloaded', timeout: 0 });
 
   await page.addStyleTag({
   content: `
